@@ -5,11 +5,13 @@
 //   getLastErrorOutput() -> string
 //   insertCellBelow(code) -> {inserted:true}
 //   runCell() -> {ran:true}
+// 适配器：JupyterLab、经典 Notebook、VS Code 原生 Notebook（ModelScope Code Editor）、Kaggle DOM 兜底。
 // 注意：本脚本只把文本放进单元格，从不 eval 模型输出。
 (() => {
   if (window.__nbacPageLoaded) return;
   window.__nbacPageLoaded = true;
 
+  const H = window.__nbacHelpers; // nb-helpers.js（manifest 里先于本文件加载）
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const visible = (el) => !!(el && el.isConnected && (el.offsetParent !== null || el.getClientRects().length));
 
@@ -64,6 +66,11 @@
     return m.editor.getEditors().find((e) => { const d = e.getDomNode && e.getDomNode(); return d && (d === monacoEl || monacoEl.contains(d) || d.contains(monacoEl)); }) || null;
   }
 
+  // Monaco 渲染出来的行：按 top 排序（DOM 顺序不一定等于行号顺序），&nbsp; 还原成空格
+  function monacoViewText(monacoEl) {
+    return H.joinViewLines(Array.from(monacoEl.querySelectorAll('.view-lines .view-line')).map((l) => ({ top: l.style.top, text: l.textContent })));
+  }
+
   function getEditorText(root) {
     if (!root) return '';
     const view = cm6View(root);
@@ -76,8 +83,7 @@
       if (ed) return ed.getValue();
       // 没有全局 monaco（如飞桨 AI Studio 的 BML Codelab）：读渲染出来的行。
       // Monaco 用 &nbsp; 渲染空格；超长单元格只渲染可见的行
-      const vl = monacoEl.querySelectorAll('.view-lines .view-line');
-      return Array.from(vl).map((l) => l.textContent.replace(/\u00a0/g, ' ')).join('\n');
+      return monacoViewText(monacoEl);
     }
     const lines = root.querySelectorAll('.cm-line');
     if (lines.length) return Array.from(lines).map((l) => l.textContent).join('\n');
@@ -380,10 +386,166 @@
     }
   };
 
+  // ---------- 适配器 4：VS Code 原生 Notebook 编辑器（ModelScope 免费 CPU 实例的 Code Editor） ----------
+  // 结构（2026-11 对照真实 ModelScope 页面抓取）：外层 modelscope.cn/code/workspace 页面
+  // 同源嵌 iframe[title="notebook-ide"] → /notebook/main.html（VS Code web 工作台）。
+  // .notebook-editor > .notebook-toolbar-container（a[aria-label="Add Code Cell"] 等）+ .cell-list-container >
+  // div.monaco-list[aria-label="Notebook"] > .monaco-list-row.code-cell-row[data-index][aria-setsize]（当前单元格有 .focused/.selected）。
+  // 单元格编辑器是 Monaco，用 EditContext（.native-edit-context），没有全局 monaco；输出渲染在跨域 webview 里，通常读不到文字。
+  const WRITE_FAILED = 'NBAC_WRITE_FAILED';
+  const vscodeNotebook = {
+    kind: 'vscode-notebook',
+    editor() {
+      const eds = Array.from(document.querySelectorAll('.notebook-editor'))
+        .filter((e) => e.querySelector('.cell-list-container .monaco-list'));
+      const vis = eds.filter(visible);
+      const pool = vis.length ? vis : eds;
+      return pool.find((e) => e.contains(document.activeElement)) || pool[pool.length - 1] || null;
+    },
+    list() { const e = this.editor(); return e && e.querySelector('.cell-list-container .monaco-list'); },
+    detect() { return !!this.list(); },
+    rows() {
+      const l = this.list();
+      if (!l) return [];
+      return Array.from(l.querySelectorAll('.monaco-list-row.code-cell-row, .monaco-list-row.markdown-cell-row'))
+        .sort((a, b) => (+a.dataset.index || 0) - (+b.dataset.index || 0));
+    },
+    // 总单元格数：列表是虚拟滚动的，屏幕外的行不在 DOM 里，用 aria-setsize
+    total() {
+      const rows = this.rows();
+      const n = rows.reduce((m, r) => Math.max(m, +r.getAttribute('aria-setsize') || 0), 0);
+      return Math.max(n, rows.length);
+    },
+    activeRow() {
+      const l = this.list();
+      if (!l) return null;
+      const rows = this.rows();
+      const byFocus = rows.find((r) => r.contains(document.activeElement));
+      const id = l.getAttribute('aria-activedescendant');
+      return byFocus || rows.find((r) => r.classList.contains('focused')) || rows.find((r) => r.classList.contains('selected')) ||
+        (id && rows.find((r) => r.id === id)) || rows[rows.length - 1] || null;
+    },
+    monacoOf(row) { return row && (row.querySelector('.cell-editor-container .monaco-editor') || row.querySelector('.monaco-editor')); },
+    getActiveCellCode() { const m = this.monacoOf(this.activeRow()); return m ? monacoViewText(m) : ''; },
+    // 输出在跨域 webview 里时读不到；能读到的（DOM 里的文字、通知）就读
+    outputText(row) {
+      const out = row && row.querySelector('.output');
+      return out ? (out.innerText || '').trim() : '';
+    },
+    getLastErrorOutput() {
+      const row = this.activeRow();
+      const t = this.outputText(row);
+      if (/Traceback|Error|Exception|ipykernel/i.test(t)) return t;
+      return '';
+    },
+    outputUnreadable() {
+      const row = this.activeRow();
+      if (!row) return false;
+      const hasOut = row.querySelector('.output') && !this.outputText(row);
+      return !!(hasOut || this.editor().querySelector('iframe.webview'));
+    },
+    kernelHint() {
+      const ed = this.editor();
+      if (!ed) return '';
+      const btn = ed.querySelector('a.codicon-notebook-kernel-select');
+      const lab = btn && btn.parentElement && btn.parentElement.querySelector('.kernel-label');
+      return H.vscodeKernelHint({ hasButton: !!btn, label: btn ? (btn.getAttribute('aria-label') || '') + ' ' + (lab ? lab.textContent : '') : '', pageText: document.body.innerText || '' });
+    },
+    button(scope, label) {
+      if (!scope) return null;
+      const all = Array.from(scope.querySelectorAll(`a.action-label[aria-label="${label}"], [role="button"][aria-label="${label}"]`));
+      return all.find(visible) || all[0] || null;
+    },
+    async writeMonaco(monacoEl, code) {
+      const target = monacoEl.querySelector('.native-edit-context') || monacoEl.querySelector('textarea.inputarea') ||
+        monacoEl.querySelector('textarea:not([readonly])');
+      if (!target) throw new Error(WRITE_FAILED + ':找不到 Monaco 编辑器的输入区');
+      const ok = () => H.codeMatches(monacoViewText(monacoEl), code);
+      const selectAll = () => {
+        if (!H.normCode(monacoViewText(monacoEl))) return;
+        const mac = /Mac/.test(navigator.platform);
+        key(target, 'a', { ctrlKey: !mac, metaKey: mac });
+      };
+      const methods = [
+        ['paste', () => {
+          // 粘贴不会触发自动补括号/自动缩进，是最准确的
+          const dt = new DataTransfer();
+          dt.setData('text/plain', code);
+          target.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true, composed: true }));
+        }],
+        ['editcontext', () => {
+          // VS Code / 新版 Monaco 用 EditContext 接收输入：发一次 textupdate 事件。
+          // 让替换范围比当前选区多 1 个字符，Monaco 会走“输入法组合输入”分支，按原文插入，
+          // 不会自动缩进/补括号（普通 type 分支会给多行文本加缩进）。新单元格是空的，多出的 1 个字符什么也删不掉。
+          const ec = target.editContext;
+          if (!ec || typeof TextUpdateEvent !== 'function') return;
+          const from = ec.selectionStart, to = ec.selectionEnd + 1;
+          ec.dispatchEvent(new TextUpdateEvent('textupdate', { text: code, updateRangeStart: from, updateRangeEnd: to,
+            selectionStart: from + code.length, selectionEnd: from + code.length }));
+        }],
+        ['execCommand', () => { document.execCommand('insertText', false, code); }],
+        ['beforeinput', () => {
+          const o = { inputType: 'insertText', data: code, bubbles: true, cancelable: true, composed: true };
+          if (target.dispatchEvent(new InputEvent('beforeinput', o))) target.dispatchEvent(new InputEvent('input', o));
+        }]
+      ];
+      for (const [name, fn] of methods) {
+        target.focus();
+        await sleep(30);
+        selectAll();
+        try { await fn(); } catch { /* 试下一个 */ }
+        if (await waitFor(ok, 800, 60)) return 'monaco-' + name;
+      }
+      const left = H.normCode(monacoViewText(monacoEl));
+      throw new Error(WRITE_FAILED + ':没能把代码写进 Monaco 编辑器' + (left ? '（单元格里可能留下了不完整的内容，请先清空）' : ''));
+    },
+    async insertCellBelow(code) {
+      const ed = this.editor();
+      if (!ed) throw new Error('未找到 Notebook 编辑器');
+      const before = this.total();
+      const old = this.activeRow();
+      const oldIndex = old ? +old.dataset.index : -1;
+      // 优先：当前单元格下方的“+ Code”（插在它后面）；其次 Notebook 顶部工具栏的“+ Code”（VS Code 会插在当前单元格后面）
+      const cands = [];
+      if (old) cands.push(['cell-toolbar', this.button(old.querySelector('.cell-bottom-toolbar-container'), 'Add Code Cell')]);
+      cands.push(['notebook-toolbar', this.button(ed.querySelector('.notebook-toolbar-container'), 'Add Code Cell')]);
+      if (!old) cands.push(['top-toolbar', this.button(ed.querySelector('.cell-list-top-cell-toolbar-container'), 'Add Code Cell')]);
+      let via = '';
+      for (const [name, btn] of cands) {
+        if (!btn) continue;
+        press(btn); via = name;
+        if (await waitFor(() => this.total() > before, 2500)) break;
+        via = '';
+      }
+      if (!via) throw new Error('插入新单元格失败：没有找到可用的“+ Code / Add Code Cell”按钮');
+      const row = await waitFor(() => {
+        const a = this.activeRow();
+        if (a && +a.dataset.index !== oldIndex && this.monacoOf(a)) return a;
+        return this.rows().find((r) => +r.dataset.index === oldIndex + 1 && this.monacoOf(r)) || null;
+      }, 3000);
+      if (!row) throw new Error('找不到新插入的单元格');
+      if (oldIndex >= 0 && +row.dataset.index !== oldIndex + 1) via += '(末尾)';
+      row.scrollIntoView({ block: 'center' });
+      const m = await waitFor(() => { const x = this.monacoOf(row); return x && x.querySelector('.native-edit-context, textarea') ? x : null; });
+      if (!m) throw new Error(WRITE_FAILED + ':新单元格的编辑器没有加载');
+      const how = await this.writeMonaco(m, code);
+      return { inserted: true, via: via + '+' + how, notice: this.kernelHint() };
+    },
+    async runCell() {
+      const row = this.activeRow();
+      if (!row) throw new Error('没有可运行的单元格');
+      const btn = row.querySelector('.run-button-container a.codicon-notebook-execute, .run-button-container a[aria-label^="Execute Cell"]');
+      if (!btn) throw new Error('找不到这个单元格的运行按钮（Execute Cell）');
+      press(btn);
+      await sleep(1500);
+      return { ran: true, via: 'execute-button', notice: this.kernelHint() };
+    }
+  };
+
   function platformName() {
     const h = location.hostname;
     if (/(^|\.)aistudio\.baidu\.(com|test)$/.test(h)) return '飞桨 AI Studio';
-    if (/modelscope\.cn$/.test(h) || /data\.aliyun\.com$/.test(h)) return 'ModelScope';
+    if (/(^|\.)modelscope\.(cn|test)$/.test(h) || /data\.aliyun\.com$/.test(h)) return 'ModelScope';
     if (/kaggle/.test(h)) return 'Kaggle';
     if (window.__nbacForceKaggle) return 'Kaggle';
     return 'Jupyter';
@@ -392,6 +554,7 @@
   function pickAdapter() {
     if (jupyterLab.detect()) return jupyterLab;
     if (classicNotebook.detect()) return classicNotebook;
+    if (vscodeNotebook.detect()) return vscodeNotebook;
     if (kaggle.detect()) return kaggle;
     return null;
   }
@@ -405,16 +568,28 @@
         if (r.platform === '飞桨 AI Studio' && window.top === window && /\/project\/(edit|detail)\//.test(location.pathname)) {
           r.hint = '这是 AI Studio 外层的项目编辑器，暂不支持。请点击「专业开发」打开 BML Codelab 后使用';
         }
+        if (r.platform === 'ModelScope' && document.querySelector('.monaco-workbench')) {
+          r.hint = 'ModelScope Code Editor 里还没打开 Notebook：请打开或新建一个 .ipynb 文件（File → New File… → Jupyter Notebook）';
+        } else if (r.platform === 'ModelScope' && window.top === window && /^\/my\/mynotebook/.test(location.pathname)) {
+          r.hint = '请先启动 Notebook 实例，再点「查看 / View」打开 Code Editor';
+        }
         return r;
       }
       const nb = a === jupyterLab ? jupyterLab.notebookNode() : null;
-      const cellCount = nb ? nb.querySelectorAll('.jp-Cell').length : (a === kaggle ? kaggle.editors().length : 0);
-      return { detected: true, platform: platformName(), kind: a.kind, cellCount, viaApp: a === jupyterLab && !!jupyterLab.panelWidget() };
+      const cellCount = nb ? nb.querySelectorAll('.jp-Cell').length : (a === kaggle ? kaggle.editors().length : (a === vscodeNotebook ? vscodeNotebook.total() : 0));
+      const r = { detected: true, platform: platformName(), kind: a.kind, cellCount, viaApp: a === jupyterLab && !!jupyterLab.panelWidget() };
+      if (a === vscodeNotebook) r.notice = vscodeNotebook.kernelHint();
+      return r;
     },
     getContext() {
       const a = pickAdapter();
       if (!a) throw new Error('当前页面没有检测到 Notebook');
-      return { platform: platformName(), kind: a.kind, cellCode: a.getActiveCellCode(), errorOutput: a.getLastErrorOutput() };
+      const r = { platform: platformName(), kind: a.kind, cellCode: a.getActiveCellCode(), errorOutput: a.getLastErrorOutput() };
+      if (a === vscodeNotebook) {
+        r.outputUnreadable = !r.errorOutput && vscodeNotebook.outputUnreadable();
+        r.notice = vscodeNotebook.kernelHint();
+      }
+      return r;
     },
     getActiveCellCode() { const a = pickAdapter(); if (!a) throw new Error('未检测到 Notebook'); return a.getActiveCellCode(); },
     getLastErrorOutput() { const a = pickAdapter(); if (!a) throw new Error('未检测到 Notebook'); return a.getLastErrorOutput(); },

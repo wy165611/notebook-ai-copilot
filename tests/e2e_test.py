@@ -535,6 +535,125 @@ def test_aistudio_outer(ctx, sw):
     check('[outer] 外层编辑器提示去「专业开发」打开 BML Codelab', '请点击「专业开发」打开 BML Codelab 后使用' in st, st)
     panel.close(); page.close()
 
+MS = 'http://modelscope.test:8771'
+
+def ms_open(ctx, sw, query=''):
+    page = ctx.new_page()
+    page.set_viewport_size({'width': 1100, 'height': 900})
+    page.goto(MS + '/code/workspace?instanceId=dsw-test&resourceType=free&acceleratorType=CPU' + query)
+    fr = wait_frame(page, lambda f: '/notebook/main.html' in f.url and f.evaluate('() => !!window.__fixtureReady'), 'notebook-ide', 30)
+    panel = open_panel(ctx, sw, MS + '/code/*')
+    set_storage(panel, providers=mock_providers(), active='bailian', thinking='default', includeContext=True)
+    return page, fr, panel
+
+MS_CELLS_JS = "() => window.__fixtureCells.map(c => ({i: +c.row.dataset.index, focused: c.row.classList.contains('focused'), code: c.ed.getValue()}))"
+
+def test_modelscope(ctx, sw):
+    """ModelScope 免费 CPU 实例的 Code Editor：外层页面同源嵌 VS Code 工作台（iframe[title=notebook-ide]），
+    .ipynb 用 VS Code 原生 Notebook 编辑器 + Monaco（EditContext）。夹具照抄真实 DOM，Monaco 是真的，运行是假的。"""
+    print('\n=== ModelScope Code Editor（VS Code 原生 Notebook，真实 DOM 结构夹具） ===', flush=True)
+    page, fr, panel = ms_open(ctx, sw)
+    status = wait_status_ok(panel)
+    frames = panel.evaluate("() => document.getElementById('status').title")
+    check('[ms] 连上 notebook-ide frame（平台 ModelScope，vscode-notebook）', 'ModelScope' in status and 'vscode-notebook' in status and '内嵌 frame' in status, status)
+    lines = frames.split('\n')
+    chosen = [l for l in lines if 'vscode-notebook' in l]
+    check('[ms] 外层页面和 extensionHost frame 回报“不是 Notebook”，跨域 webview 不注入', len(chosen) == 1 and '/notebook/main.html' in chosen[0]
+          and all('不是 Notebook' in l for l in lines if l not in chosen) and not any('alicdn' in l for l in lines), frames.replace('\n', ' | '))
+    check('[ms] 识别到真实 Monaco 用的是 EditContext（.native-edit-context，没有 textarea.inputarea）',
+          fr.evaluate("() => !!document.querySelector('.code-cell-row .native-edit-context') && !document.querySelector('.code-cell-row textarea.inputarea') && !window.monaco"))
+    notice = panel.inner_text('#notice') if panel.is_visible('#notice') else ''
+    check('[ms] 内核是 /usr/bin/python3 时提示改选 /usr/local/bin/python', '/usr/local/bin/python' in notice and 'ipykernel' in notice, notice)
+
+    code, txt, _ = ask(panel, '用 pandas 读一个 csv')
+    L = last()
+    check('[ms] 读到当前单元格代码（Monaco 渲染行）', 'y = 1/0' in L.get('user', ''), L.get('user', '')[:120])
+    check('[ms] 系统提示带清华镜像（国内平台）', 'pypi.tuna.tsinghua.edu.cn' in L.get('system', ''))
+    _, txt, _ = ask(panel, fix=True)
+    check('[ms] 输出在跨域 webview 里读不到时，修复报错提示把报错贴进输入框', '读不到报错文字' in txt, txt[:120])
+
+    msg = last_bot(panel)
+    # 用上一条正常回复的代码块来插入
+    msg = [m for m in panel.query_selector_all('.msg.bot:not(.pending)') if m.query_selector('.act-insert')][-1]
+    r = click_and_wait_result(panel, msg, '.act-insert')
+    cells = fr.evaluate(MS_CELLS_JS)
+    new = [c for c in cells if c['focused']]
+    check('[ms] 点当前单元格下方的“+ Code”插入，并通过粘贴写入 Monaco（内容完全一致）',
+          len(cells) == 3 and new and new[0]['i'] == 2 and new[0]['code'].strip() == code.strip() and 'cell-toolbar+monaco-paste' in r, r + ' | ' + json.dumps(cells, ensure_ascii=False)[:200])
+    notice = panel.inner_text('#notice') if panel.is_visible('#notice') else ''
+    check('[ms] 插入后仍提示内核问题', '/usr/local/bin/python' in notice, notice)
+
+    fr.click('a.codicon-notebook-kernel-select')  # 模拟用户改选 /usr/local/bin/python
+    panel.click('#plusBtn'); panel.click('#refresh')
+    wait_status_ok(panel); time.sleep(0.5)
+    check('[ms] 换好内核后提示消失', not panel.is_visible('#notice'), panel.inner_text('#notice'))
+    msg.query_selector('.act-run').click()
+    check('[ms] 运行前要确认', msg.query_selector('.confirm').is_visible())
+    n_out = fr.evaluate("() => window.__fixtureOutputs.length")
+    r = click_and_wait_result(panel, msg, '.act-confirm')
+    outs = fr.evaluate("() => window.__fixtureOutputs")
+    check('[ms] 确认后插入并用单元格的 Execute Cell 按钮运行（NBAC_OK 42 True）',
+          len(outs) == n_out + 1 and outs[-1]['text'] == 'NBAC_OK 42 True' and outs[-1]['index'] == 3, r + ' | ' + json.dumps(outs, ensure_ascii=False)[:200])
+
+    # 把报错贴进输入框再修复
+    # 选中出错的单元格（真实页面里输出 webview 可能盖在单元格上，这里直接派发 mousedown + 聚焦编辑器）
+    fr.evaluate("""() => { const r = document.querySelector('.code-cell-row[data-index="1"]'); r.dispatchEvent(new MouseEvent('mousedown', {bubbles: true})); r.querySelector('.native-edit-context').focus(); }""")
+    code, _, _ = ask(panel, 'ZeroDivisionError: division by zero', fix=True)
+    L = last()
+    check('[ms] 用户贴进来的报错作为报错输出发给模型', 'ZeroDivisionError' in L.get('user', '') and 'y = 1/0' in L.get('user', '') and 'NBAC_FIXED' in code, L.get('user', '')[:160])
+    msg = last_bot(panel)
+    msg.query_selector('.act-run').click()
+    r = click_and_wait_result(panel, msg, '.act-confirm')
+    outs = fr.evaluate("() => window.__fixtureOutputs")
+    cells = fr.evaluate(MS_CELLS_JS)
+    check('[ms] 修复代码插在出错单元格下方并运行（NBAC_FIXED 1.0）', outs[-1]['text'] == 'NBAC_FIXED 1.0' and outs[-1]['index'] == 2 and len(cells) == 5, r)
+    page.screenshot(path=str(SHOT_DIR / 'modelscope-notebook.png'))
+    panel.screenshot(path=str(SHOT_DIR / 'modelscope-panel.png'))
+    panel.close(); page.close()
+
+    # 输出能读到时（DOM 里的文字），修复报错直接读取
+    page, fr, panel = ms_open(ctx, sw, '&readable=1')
+    wait_status_ok(panel)
+    code, _, _ = ask(panel, fix=True)
+    L = last()
+    check('[ms] 输出在 DOM 里时直接读到报错', 'ZeroDivisionError' in L.get('user', '') and 'NBAC_FIXED' in code, L.get('user', '')[:160])
+    panel.close(); page.close()
+
+    # 粘贴被拦掉：改用 EditContext 的 textupdate 写入
+    page, fr, panel = ms_open(ctx, sw, '&nopaste=1&kernel=local')
+    wait_status_ok(panel)
+    code, _, _ = ask(panel, '写一个多行带缩进的函数')
+    msg = last_bot(panel)
+    r = click_and_wait_result(panel, msg, '.act-insert')
+    new = [c for c in fr.evaluate(MS_CELLS_JS) if c['focused']]
+    check('[ms] 粘贴无效时用 EditContext textupdate 写入（缩进不变、不多括号）', new and new[0]['code'].strip() == code.strip() and 'monaco-editcontext' in r, r)
+    panel.close(); page.close()
+
+    # 所有写入方式都无效：代码复制到剪贴板 + 提示，不运行
+    page, fr, panel = ms_open(ctx, sw, '&nowrite=1&kernel=local')
+    wait_status_ok(panel)
+    ask(panel, '随便写点')
+    msg = last_bot(panel)
+    msg.query_selector('.act-run').click()
+    r = click_and_wait_result(panel, msg, '.act-confirm')
+    outs = fr.evaluate("() => window.__fixtureOutputs")
+    notice = panel.inner_text('#notice') if panel.is_visible('#notice') else ''
+    check('[ms] 写不进编辑器时提示并把代码复制到剪贴板，不运行', '插入失败' in r and ('剪贴板' in r or '复制' in r) and '自动写入单元格失败' in notice and not outs, r + ' | ' + notice)
+    panel.close(); page.close()
+
+    # 没打开 Notebook / 在“我的 Notebook”列表页
+    page, fr, panel = ms_open(ctx, sw, '&empty=1')
+    panel.wait_for_selector('#status.bad', timeout=15000)
+    st = panel.inner_text('#status')
+    check('[ms] Code Editor 里没打开 .ipynb 时提示新建/打开 Notebook', '.ipynb' in st, st)
+    panel.close(); page.close()
+    page = ctx.new_page(); page.goto(MS + '/my/mynotebook')
+    panel = open_panel(ctx, sw, MS + '/my/*')
+    panel.wait_for_selector('#status.bad', timeout=15000)
+    st = panel.inner_text('#status')
+    check('[ms] 在“我的 Notebook”列表页提示先启动实例并点「查看」', '查看' in st, st)
+    panel.close(); page.close()
+
 def test_options(ctx, sw):
     print('\n=== 设置页 ===', flush=True)
     ext_id = sw.url.split('/')[2]
@@ -589,21 +708,23 @@ def main():
     labs = [start_lab(8899, False), start_lab(8900, True), start_lab(8901, False, frameable=True),
             start_lab(8902, False, base_url='/bj-cpu-01/user/123/456/', zh=True)]
     labs.append(subprocess.Popen([PY, str(HERE / 'aistudio_proxy.py'), '8770', '8902']))
+    labs.append(subprocess.Popen([PY, str(HERE / 'modelscope_server.py'), '8771']))
     try:
         wait_http(MOCK + '/last')
         wait_http('http://127.0.0.1:8770/bj-cpu-01/user/123/456/home')
+        wait_http('http://127.0.0.1:8771/my/mynotebook')
         with sync_playwright() as pw:
             udd = tempfile.mkdtemp(prefix='nbac-chrome-')
             ctx = pw.chromium.launch_persistent_context(udd, headless=False, args=[
                 f'--disable-extensions-except={ext}', f'--load-extension={ext}',
                 '--disable-background-timer-throttling', '--disable-renderer-backgrounding',
                 '--disable-backgrounding-occluded-windows', '--window-size=1100,1000', '--window-position=0,0',
-                '--host-resolver-rules=MAP *.kaggle.test 127.0.0.1, MAP *.kagglenet.test 127.0.0.1, MAP aistudio.baidu.test 127.0.0.1'])
+                '--host-resolver-rules=MAP *.kaggle.test 127.0.0.1, MAP *.kagglenet.test 127.0.0.1, MAP aistudio.baidu.test 127.0.0.1, MAP modelscope.test 127.0.0.1, MAP g.alicdn.test 127.0.0.1'])
             sw = ctx.service_workers[0] if ctx.service_workers else ctx.wait_for_event('serviceworker')
             for t in (test_options, test_models_and_thinking,
                       lambda c, s: test_jupyterlab(c, s, 8899, 'dom'),
                       lambda c, s: test_jupyterlab(c, s, 8900, 'app'),
-                      test_kaggle, test_aistudio, test_aistudio_monaco, test_aistudio_outer, screenshot_demo):
+                      test_kaggle, test_aistudio, test_aistudio_monaco, test_aistudio_outer, test_modelscope, screenshot_demo):
                 try:
                     t(ctx, sw)
                 except Exception as e:

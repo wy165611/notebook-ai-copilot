@@ -65,7 +65,7 @@ Chrome 偶尔会提示“停用开发者模式扩展”，点关闭即可。
 | 平台 | 匹配的网址 | 适配方式 |
 |---|---|---|
 | 飞桨 AI Studio（BML Codelab，基于 JupyterLab） | `aistudio.baidu.com`、`*.aistudio.baidu.com` | `#jupyterlab-frame` iframe 里的 JupyterLab 走 JupyterLab 适配器（支持 Monaco 编辑器）；外层项目编辑器不支持，见下文 |
-| ModelScope Notebook（阿里云 PAI-DSW 的 JupyterLab） | `modelscope.cn`、`*.modelscope.cn`、`*.data.aliyun.com`（如 `dsw-gateway-cn-hangzhou.data.aliyun.com/dsw-xxxx/lab`） | JupyterLab 适配器 |
+| ModelScope Notebook | `modelscope.cn`、`*.modelscope.cn`、`*.data.aliyun.com`（如 `dsw-gateway-cn-hangzhou.data.aliyun.com/dsw-xxxx/lab`） | 免费 CPU 实例的 Code Editor（VS Code 网页版）走 **VS Code Notebook 适配器**；打开的是 JupyterLab 时走 JupyterLab 适配器 |
 | Kaggle（`www.kaggle.com/code/.../edit`） | `www.kaggle.com`、`*.kaggleusercontent.com`、`*.kaggle.net`（单元格所在的 `kkb-production.jupyter-proxy.kaggle.net` iframe） | iframe 里的 JupyterLab 4 走 JupyterLab 适配器；顶层 kaggle.com 页面没有单元格，会回报“不是 Notebook” |
 
 内容脚本在所有 iframe 里都会运行（`all_frames`）。检测时每个 frame 都会回报自己是不是 Notebook，侧边栏按 `frameId` 选出真正有单元格的那个 frame（JupyterLab 优先、单元格多的优先），之后的读取、插入、运行都只发给这个 frame。Notebook 晚加载时，侧边栏会每 3 秒自动重试检测（最多约 1 分钟）。
@@ -83,6 +83,17 @@ Chrome 偶尔会提示“停用开发者模式扩展”，点关闭即可。
 - 那里的 JupyterLab 是中文界面（如按钮标题“下方插入单元格 (B)”），单元格编辑器是 **Monaco**，并且不暴露全局 `window.monaco`。扩展只靠 `data-command`、class 这些不随语言变化的选择器；Monaco 的内容从渲染出来的行（`.view-lines .view-line`）读取，写入时对 Monaco 的隐藏输入框发一个“粘贴”事件（粘贴不会自动补括号），运行用工具栏按钮或 Shift+Enter。
 - 测试里在本机仿造了这个结构：同源宿主页 + `#vscode-frame` 诱饵（含嵌套 iframe）+ `#jupyterlab-frame` 里经反向代理的真实中文 JupyterLab 4；另有一个照抄真实 DOM、用真实 Monaco（去掉全局）的单元格夹具（运行是假的）。检测、读代码和报错、插入、确认后运行、修复报错、外层编辑器提示都通过了。**还没有在真正的 AI Studio 上端到端跑过。**
 
+**ModelScope**（2026-11 对照真实 ModelScope 免费 CPU 实例的 DOM 结构核对过）：
+- 在「我的 Notebook」里启动实例后点「查看 / View」，打开的是 `modelscope.cn/code/workspace?instanceId=…`。它**不是 JupyterLab**，而是 VS Code 网页版的 Code Editor：外层页面同源嵌了 `iframe[title="notebook-ide"]`（`/notebook/main.html`），`.ipynb` 用 VS Code 自带的 Notebook 编辑器打开。侧边栏只连这个 frame；外层页面、`extensionHostIframe.html` 都回报“不是 Notebook”，`g.alicdn.com` 上的跨域 webview 不注入。
+- 还没打开 `.ipynb` 时会提示新建一个（File → New File… → Jupyter Notebook）；在「我的 Notebook」列表页会提示先启动实例再点「查看」。
+- 读代码：当前单元格是 `.monaco-list-row.code-cell-row.focused`，代码从 Monaco 渲染出来的行（`.view-lines`）读取。
+- 插入：点当前单元格下方的「+ Code」（`a[aria-label="Add Code Cell"]`），找不到再点 Notebook 工具栏的「+ Code」。VS Code 这里没有 `data-command`，只能靠 `aria-label`，界面是英文；如果平台改成中文界面，按钮名会变，插入会失败。
+- 写代码：单元格编辑器是 Monaco，用 EditContext（`.native-edit-context`），没有全局 `monaco`。依次试：① 对编辑器发一个“粘贴”事件；② 发一次 EditContext `textupdate`；③ `document.execCommand('insertText')`；④ `beforeinput`。每试一次都核对渲染出来的代码和原文完全一致（缩进、括号都不能差）。都不行时**不会运行**，代码会复制到剪贴板，提示你在新单元格里按 Ctrl+V。
+- 运行：确认后点这个单元格的运行按钮（`.run-button-container a.codicon-notebook-execute`）。
+- 报错：VS Code 把输出画在单独的跨域 webview 里，扩展通常**读不到输出文字**。这时“修复当前报错”会提示你把报错复制到输入框里，再点“修复当前报错”，贴进来的内容会当作报错发给模型。
+- 内核：实测 `/usr/bin/python3`（Python 3.10.12）没有 ipykernel，运行会报 “requires the ipykernel package”，也装不了 pip。检测到这种内核或这条报错时，侧边栏会提示：点 Notebook 右上角的内核名，改选 `/usr/local/bin/python`（Python 3.11）。
+- **注意**：这些只对照抓下来的真实 DOM，在本机仿造的页面（真实 monaco-editor + EditContext，运行是假的）上测过，**没有在真实 ModelScope 页面里装上扩展跑过**。
+
 **Kaggle**（2026-11 对照真实已登录 Kaggle Notebook 的 DOM 结构核对过）：
 - 顶层 `www.kaggle.com` 是 Kaggle 自己的 React/MUI 页面（工具栏有 Add cell、Run current cell、Run All 等），**没有单元格**；
 - 单元格在 `<iframe name="notebook-editor-cells" title="Notebook editor cells">` 里，地址是 `https://kkb-production.jupyter-proxy.kaggle.net/static/assets/jupyterlab-v4/jupyterlab-index-….html?session=…`，里面是标准 JupyterLab 4（`.jp-NotebookPanel > .jp-WindowedPanel-outer`、`.jp-Cell`、CodeMirror 6，也有 `data-command` 工具栏按钮）；
@@ -95,7 +106,7 @@ Chrome 偶尔会提示“停用开发者模式扩展”，点关闭即可。
 ## 已知限制
 
 - 界面风格参考了常见的 Notebook AI 侧边栏，只是自己用；扩展里没有用任何其他公司的标志或名称。
-- 无法登录三个平台做实测：JupyterLab 适配器在真实 JupyterLab 4.6 上测过；ModelScope 基于 JupyterLab，但平台可能有定制；AI Studio（BML Codelab）和 Kaggle 只在本机按真实 DOM 仿造的结构上测过，没在真实平台上跑过。AI Studio 的 Monaco 单元格只能读到当前渲染出来的行，特别长的单元格可能读不全。
+- 无法登录三个平台做实测：JupyterLab 适配器在真实 JupyterLab 4.6 上测过；AI Studio（BML Codelab）、ModelScope（Code Editor）和 Kaggle 都只在本机按真实 DOM 仿造的结构上测过，没在真实平台上装上扩展跑过。ModelScope 的输出通常读不到，报错要自己贴进输入框。AI Studio 的 Monaco 单元格只能读到当前渲染出来的行，特别长的单元格可能读不全。
 - 插入位置是“当前选中单元格的下方”。
 - Gemini API 在中国大陆网络下通常无法直连。
 - 模型生成的代码可能有错，请一定先检查再运行，尤其是删除文件、下载大文件的命令。

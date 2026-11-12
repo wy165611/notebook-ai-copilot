@@ -29,7 +29,7 @@ async function activeTabId() {
 }
 function withTimeout(p, ms) { return Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), ms))]); }
 
-const KIND_RANK = { jupyterlab: 3, 'classic-notebook': 2, 'kaggle-dom': 1 };
+const KIND_RANK = { jupyterlab: 3, 'vscode-notebook': 3, 'classic-notebook': 2, 'kaggle-dom': 1 };
 let detectRetry = null;
 
 // 向标签页里所有 frame 广播检测请求，收集各 frame 的回报（sender.frameId），选出真正有 Notebook 的 frame
@@ -68,6 +68,8 @@ async function detect(attempt = 0) {
     target = { tabId, frameId: best.frameId, platform: best.platform, kind: best.kind };
     const where = best.top ? '主页面' : '内嵌 frame';
     setStatus(`已连接：${best.platform}（${best.kind}${best.viaApp ? '，JupyterLab API' : ''}，${where}）`, 'ok');
+    if (best.notice) showNotice(best.notice);
+    else if (best.kind === 'vscode-notebook' && /内核/.test($('notice').textContent)) showNotice('');
     $('status').title = reports.map((r) => `frame ${r.frameId}${r.top ? '(top)' : ''}: ${r.detected ? r.kind + ' ' + r.cellCount + ' 个单元格' : '不是 Notebook'}  ${String(r.url).split('?')[0]}`).join('\n');
     return target;
   }
@@ -271,10 +273,24 @@ function renderBot(m, { text, code, meta, error }) {
     for (const b of [bIns, bRun, bOk]) b.disabled = true;
     try {
       const r = await call('insertCellBelow', { code: ta.value });
-      if (/footer/.test(r.via)) r.via += '，找不到“在下方插入”，已加到 Notebook 末尾';
-      if (andRun) { await call('runCell', {}); setResult(`已插入新单元格并开始运行（${r.via}）`); }
-      else setResult(`已插入到新单元格（${r.via}），检查无误后在 Notebook 里运行`);
-    } catch (e) { setResult('插入失败：' + (e.message || e), true); }
+      if (/footer|末尾/.test(r.via)) r.via += '，找不到“在下方插入”，已加到 Notebook 末尾';
+      if (r.notice) showNotice(r.notice);
+      if (andRun) {
+        const rr = await call('runCell', {});
+        if (rr && rr.notice) showNotice(rr.notice);
+        setResult(`已插入新单元格并开始运行（${r.via}）`);
+      } else setResult(`已插入到新单元格（${r.via}），检查无误后在 Notebook 里运行`);
+    } catch (e) {
+      const msg = String(e.message || e);
+      if (msg.startsWith('NBAC_WRITE_FAILED:')) {
+        // 写不进编辑器：把代码放到剪贴板，让用户手动粘贴；不运行
+        let copied = true;
+        try { await navigator.clipboard.writeText(ta.value); } catch { try { ta.select(); copied = document.execCommand('copy'); } catch { copied = false; } }
+        const why = msg.slice('NBAC_WRITE_FAILED:'.length);
+        setResult('插入失败：' + why + (copied ? '。代码已复制到剪贴板，请点进新单元格按 Ctrl+V 粘贴' : '。请点“复制”后手动粘贴') + (andRun ? '（没有运行）' : ''), true);
+        showNotice('自动写入单元格失败' + (copied ? '，代码已复制到剪贴板' : ''));
+      } else setResult('插入失败：' + msg, true);
+    }
     finally { for (const b of [bIns, bRun, bOk]) b.disabled = false; confirm.hidden = true; }
   };
   bIns.addEventListener('click', () => doInsert(false));
@@ -299,9 +315,16 @@ async function send(fix) {
     if (useCtx) {
       try { ctx = await call('getContext', {}); } catch (e) { if (fix) throw e; }
     }
+    if (ctx.notice) showNotice(ctx.notice);
+    let extraRequest = request;
+    if (fix && !ctx.errorOutput && ctx.outputUnreadable) {
+      // ModelScope（VS Code Notebook）的输出在跨域 webview 里，读不到：用户把报错贴进输入框即可
+      if (!request) throw new Error('这个平台的输出显示在单独的安全框里，扩展读不到报错文字。请把报错信息复制到输入框里，再点“修复当前报错”。');
+      ctx.errorOutput = request; extraRequest = '';
+    }
     if (fix && !ctx.errorOutput) throw new Error('没有找到报错输出。请先运行出错的单元格，并点一下选中它。');
     const userMessage = buildUserMessage({
-      request: fix ? (request ? '（补充说明）' + request : '') : request,
+      request: fix ? (extraRequest ? '（补充说明）' + extraRequest : '') : request,
       cellCode: useCtx ? ctx.cellCode : '', errorOutput: useCtx ? ctx.errorOutput : '', fix
     });
     const r = await generate(settings, { platform: ctx.platform || (target && target.platform), userMessage, history: history.slice(-6) });

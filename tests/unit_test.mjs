@@ -1,5 +1,7 @@
 // node tests/unit_test.mjs —— 纯函数单元测试（不需要浏览器）
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import vm from 'node:vm';
 import { extractCode, systemPrompt, buildUserMessage, thinkingParams, supportedThinking, filterChatModels, PRESETS, DEFAULTS } from '../src/lib/llm.js';
 
 assert.equal(extractCode('说明\n```python\nprint(1)\n```\n其他'), 'print(1)\n');
@@ -30,4 +32,29 @@ assert.deepEqual(thinkingParams('gemini', 'gemini-2.5-flash', 'off'), { thinking
 assert.deepEqual(thinkingParams('custom', 'gpt-x', 'high'), { reasoning_effort: 'high' });
 assert.deepEqual(thinkingParams('bailian', 'qwen3.8-max', 'default'), {});
 assert.deepEqual(filterChatModels(['qwen3.8-max', 'paraformer-v2', 'qwen-tts', 'text-embedding-v4', 'qwen3-vl-plus', 'wanx2.1-t2i']), ['qwen3.8-max', 'qwen3-vl-plus']);
+// ---------- 内容脚本的纯函数（src/content/nb-helpers.js） ----------
+{
+  const sandbox = {};
+  vm.runInNewContext(fs.readFileSync(new URL('../src/content/nb-helpers.js', import.meta.url), 'utf8'), sandbox);
+  const H = sandbox.__nbacHelpers;
+  const code = 'import numpy as np\nif True:\n    print((1, [2]))\n# done\n';
+  assert.ok(H.codeMatches(code, code));
+  assert.ok(H.codeMatches('import numpy as np  \r\nif True:\n    print((1, [2]))\n# done', code), '行尾空白和 \\r 不算差异');
+  assert.ok(!H.codeMatches(code.replace('# done', '    # done'), code), '缩进不同必须算不一致（自动缩进）');
+  assert.ok(!H.codeMatches(code.replace('[2])', '[2]))'), code), '多出括号必须算不一致（自动补括号）');
+  assert.ok(!H.codeMatches('', code));
+  const long = Array.from({ length: 60 }, (_, i) => 'x' + i + ' = ' + i).join('\n');
+  assert.ok(H.codeMatches(long.split('\n').slice(0, 25).join('\n'), long), '超长单元格只渲染了前 25 行也算');
+  assert.ok(!H.codeMatches(long.split('\n').slice(0, 5).join('\n'), long), '只渲染 5 行不够判断');
+  assert.equal(H.joinViewLines([{ top: '19px', text: 'b\u00a0=\u00a02' }, { top: '0px', text: 'a = 1' }]), 'a = 1\nb = 2');
+  assert.equal(H.joinViewLines([{ text: 'a' }, { text: 'b' }]), 'a\nb');
+  const ms = (o) => H.vscodeKernelHint({ hasButton: true, label: '', pageText: '', ...o });
+  assert.match(ms({ label: '/usr/bin/python3 Python 3.10.12' }), /\/usr\/local\/bin\/python/);
+  assert.match(ms({ label: '/bin/python3' }), /ipykernel/);
+  assert.equal(ms({ label: '/usr/local/bin/python Python 3.11.11' }), '');
+  assert.match(ms({ label: 'Select Kernel' }), /还没有选内核/);
+  assert.match(ms({ hasButton: false }), /还没有选内核/);
+  assert.match(ms({ label: '/usr/local/bin/python', pageText: "Running cells with 'Python 3.10.12' requires the ipykernel package." }), /没有 ipykernel/);
+}
+
 console.log('unit tests passed');

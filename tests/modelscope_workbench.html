@@ -1,0 +1,146 @@
+<!doctype html>
+<!-- 仿 ModelScope Code Editor（VS Code web 工作台）里的原生 Notebook 编辑器 DOM，照抄 2026-11 真实抓取的
+     notebook-editor.html：两个 .notebook-editor（第一个是空占位）、.cell-list-container > div.monaco-list[aria-label="Notebook"]、
+     .monaco-list-row.code-cell-row[data-index][aria-setsize]、当前行 .selected.focused、单元格编辑器是真实 monaco-editor
+     （EditContext：.native-edit-context + 只读 textarea.ime-text-area），不暴露全局 monaco，没有 data-command。
+     工具栏 a.action-label[aria-label="Add Code Cell"] 等；运行按钮 .run-button-container a.codicon-notebook-execute。
+     输出默认渲染在跨域 webview iframe 里（扩展读不到）；?readable=1 时把输出写成 .output 里的 DOM 文字。
+     “运行”是假的：只识别 1/0 和 NBAC_* 测试输出。内核默认 /usr/bin/python3（运行时报缺 ipykernel），点内核按钮切到 /usr/local/bin/python。
+     ?nopaste=1：拦掉 paste 事件（测试 EditContext textupdate 写入）；?nowrite=1：拦掉所有写入方式（测试剪贴板兜底）；?empty=1：没打开 Notebook。 -->
+<html lang="en"><head><meta charset="utf-8"><title>Untitled-1.ipynb - Untitled (Workspace)</title>
+<style>body{margin:0;font:13px sans-serif}.monaco-workbench{display:flex;height:100vh}.sidebar{width:200px;border-right:1px solid #ddd}
+.notebook-editor:empty{display:none}.editor-area{flex:1;overflow:auto}.notebook-toolbar-container{display:flex;justify-content:space-between;border-bottom:1px solid #ddd;padding:4px}
+.actions-container{display:flex;gap:8px;list-style:none;margin:0;padding:0}.action-label{cursor:pointer;padding:2px 4px}
+.monaco-list-row{position:relative;border-left:3px solid transparent;margin:6px 0}.monaco-list-row.focused{border-left-color:#007acc}
+.cell.code{display:flex}.run-button-container{width:26px}.cell-editor-part{flex:1}.cell-editor-container{height:110px;border:1px solid #eee}
+.cell-bottom-toolbar-container{height:20px}.output{margin-left:30px;min-height:4px;white-space:pre-wrap;color:#b00}
+iframe.webview{position:absolute;left:30px;width:60%;height:24px;border:0}.quick-input-list .monaco-list-row{display:none}</style>
+</head><body>
+<div class="monaco-workbench">
+ <div class="sidebar">EXPLORER</div>
+ <div class="editor-area">
+  <div class="notebook-editor" id="notebook-editor-element-0"></div>
+  <div class="notebook-editor" id="notebook-editor-element-1">
+   <div class="notebook-toolbar-container"><div class="notebook-toolbar-left"><div class="monaco-toolbar"><div class="monaco-action-bar"><ul class="actions-container" role="toolbar">
+    <li class="action-item"><a class="action-label codicon codicon-add" role="button" aria-label="Add Code Cell">+</a><a class="notebook-label">Code</a></li>
+    <li class="action-item"><a class="action-label codicon codicon-add" role="button" aria-label="Add Markdown Cell">+</a><a class="notebook-label">Markdown</a></li>
+    <li><a class="action-label codicon codicon-notebook-execute-all" role="button" aria-label="Run All">▷</a><a class="notebook-label">Run All</a></li>
+    <li><a class="action-label disabled icon" role="button" aria-label="Restart Kernel">↻</a></li>
+    <li><a class="action-label codicon codicon-notebook-clear" role="button" aria-label="Clear All Outputs">⌫</a></li>
+   </ul></div></div></div>
+   <div class="notebook-toolbar-right"><li class="action-item kernel-action-view-item"><a class="action-label codicon codicon-notebook-kernel-select" role="button" id="kernel" aria-label="/usr/bin/python3">⚙</a><a class="kernel-label">Python 3.10.12</a></li></div></div>
+   <div class="cell-list-container">
+    <div class="monaco-list list_id_5 mouse-support selection-single element-focused" tabindex="0" role="list" aria-label="Notebook" aria-multiselectable="true" id="list">
+     <div class="monaco-list-rows" id="rows">
+      <div class="view-zones"><div notebook-view-zone="1"><div class="cell-list-top-cell-toolbar-container"><a class="action-label" role="button" aria-label="Add Code Cell">+ Code</a><a class="action-label" role="button" aria-label="Add Markdown Cell">+ Markdown</a></div></div></div>
+     </div>
+    </div>
+   </div>
+  </div>
+ </div>
+</div>
+<div class="quick-input-widget"><div class="quick-input-list"><div class="monaco-list"><div class="monaco-list-row focused" role="option">quick pick decoy</div></div></div></div>
+<iframe src="/notebook/extensionHostIframe.html?parentOrigin=x" style="display:none"></iframe>
+<script src="/vs/loader.js"></script>
+<script>
+const Q = new URLSearchParams(location.search);
+const PORT = '{{port}}';
+const rowsEl = document.getElementById('rows');
+const list = document.getElementById('list');
+const kernel = document.getElementById('kernel');
+const cells = []; // {row, ed, outputs}
+window.__fixtureOutputs = []; // 测试用：每次运行的 {index, text}
+function renumber() {
+  cells.forEach((c, i) => {
+    c.row.dataset.index = i; c.row.id = 'list_id_5_' + i;
+    c.row.setAttribute('aria-setsize', cells.length); c.row.setAttribute('aria-posinset', i + 1);
+  });
+}
+function focusCell(c) {
+  cells.forEach((x) => { x.row.classList.remove('focused', 'selected'); x.row.setAttribute('aria-selected', 'false'); });
+  c.row.classList.add('focused', 'selected'); c.row.setAttribute('aria-selected', 'true');
+  list.setAttribute('aria-activedescendant', c.row.id);
+}
+function makeCell(code, afterIdx) {
+  const row = document.createElement('div');
+  row.className = 'monaco-list-row code-cell-row';
+  row.setAttribute('role', 'listitem'); row.setAttribute('aria-label', 'code cell');
+  row.innerHTML = '<div class="cell-inner-container cell-has-toolbar-actions">' +
+    '<div class="cell-title-toolbar"><ul class="actions-container"><a class="action-label codicon codicon-notebook-execute-above" role="button" aria-label="Execute Above Cells"></a>' +
+    '<a class="action-label codicon codicon-notebook-split-cell" role="button" aria-label="Split Cell (Ctrl+Shift+-)"></a></ul>' +
+    '<div class="monaco-toolbar cell-delete-toolbar"><a class="action-label codicon codicon-notebook-delete-cell" role="button" aria-label="Delete Cell (D D)"></a></div></div>' +
+    '<div class="cell-focus-indicator cell-focus-indicator-side cell-focus-indicator-left"><div class="execution-count-label cell-execution-order" title="Execution Order"><div>[ ]</div></div></div>' +
+    '<div class="cell code"><div class="run-button-container"><div class="monaco-toolbar"><a class="action-label codicon codicon-notebook-execute" role="button" aria-label="Execute Cell (Super+Enter)">▷</a></div></div>' +
+    '<div class="cell-editor-part"><div class="cell-editor-container" data-mode-id="python"></div>' +
+    '<div class="cell-statusbar-container"><div class="cell-status-right"><div class="cell-status-item" aria-label="Python">Python</div></div></div></div></div>' +
+    '<div class="output" aria-hidden="true"></div>' +
+    '<div class="cell-bottom-toolbar-container"><a class="action-label" role="button" aria-label="Add Code Cell"><span class="codicon codicon-add"></span> Code</a><a class="action-label" role="button" aria-label="Add Markdown Cell"> Markdown</a></div>' +
+    '</div>';
+  const at = afterIdx == null ? cells.length : afterIdx + 1;
+  const ref = cells[at] ? cells[at].row : null;
+  rowsEl.insertBefore(row, ref);
+  const ed = window.__fixtureMonaco.editor.create(row.querySelector('.cell-editor-container'), {
+    value: code || '', language: 'python', minimap: { enabled: false }, automaticLayout: true, editContext: true });
+  const c = { row, ed };
+  cells.splice(at, 0, c); renumber();
+  row.addEventListener('mousedown', () => focusCell(c), true);
+  ed.onDidFocusEditorText(() => focusCell(c));
+  row.querySelector('.cell-bottom-toolbar-container a[aria-label="Add Code Cell"]').addEventListener('click', () => addAfter(cells.indexOf(c)));
+  row.querySelector('a.codicon-notebook-execute').addEventListener('click', () => run(c));
+  return c;
+}
+function addAfter(idx) {
+  // VS Code：新单元格聚焦并进入编辑
+  setTimeout(() => { const c = makeCell('', idx); focusCell(c); c.ed.focus(); }, 50);
+}
+function run(c) {
+  const code = c.ed.getValue();
+  let text;
+  if (kernel.getAttribute('aria-label') === '/usr/bin/python3') {
+    text = "Running cells with 'Python 3.10.12' requires the ipykernel package.\nCreate a Python Environment with the required packages.";
+  } else if (/1\s*\/\s*0/.test(code)) text = 'ZeroDivisionError                         Traceback (most recent call last)\nCell In[2], line 1\n----> 1 y = 1/0\n\nZeroDivisionError: division by zero';
+  else if (code.includes('NBAC_FIXED')) text = 'NBAC_FIXED 1.0';
+  else if (code.includes('NBAC_OK')) text = 'NBAC_OK 42 True';
+  else if (/print\(x \+ 1\)/.test(code)) text = '42';
+  else text = '';
+  window.__fixtureOutputs.push({ index: cells.indexOf(c), text, code });
+  const out = c.row.querySelector('.output');
+  if (Q.get('readable')) { out.textContent = text; return; }
+  // 真实情况：输出画在跨域 webview 里，单元格 DOM 里的 .output 是空的
+  out.innerHTML = '';
+  if (!document.querySelector('#rows > iframe.webview')) {
+    const w = document.createElement('div');
+    w.innerHTML = '<iframe class="webview ready" sandbox="allow-scripts allow-same-origin" src="http://g.alicdn.test:' + PORT + '/webviews/index.html?purpose=notebookRenderer"></iframe>';
+    rowsEl.prepend(w);
+  }
+}
+document.querySelector('.notebook-toolbar-container a[aria-label="Add Code Cell"]').addEventListener('click', () => {
+  const f = cells.findIndex((c) => c.row.classList.contains('focused'));
+  addAfter(f >= 0 ? f : cells.length - 1);
+});
+document.querySelector('.cell-list-top-cell-toolbar-container a[aria-label="Add Code Cell"]').addEventListener('click', () => addAfter(-1));
+kernel.addEventListener('click', () => { kernel.setAttribute('aria-label', '/usr/local/bin/python'); kernel.nextElementSibling.textContent = 'Python 3.11.11'; });
+if (Q.get('kernel') === 'local') kernel.click();
+if (Q.get('nopaste') || Q.get('nowrite')) document.addEventListener('paste', (e) => { e.stopImmediatePropagation(); e.preventDefault(); }, true);
+if (Q.get('nowrite')) {
+  // 模拟“所有自动写入方式都无效”：连 EditContext 的 textupdate 也吞掉
+  const orig = EventTarget.prototype.dispatchEvent;
+  EventTarget.prototype.dispatchEvent = function (ev) { return (window.TextUpdateEvent && ev instanceof TextUpdateEvent) ? false : orig.call(this, ev); };
+  for (const t of ['beforeinput', 'input', 'textInput', 'keydown']) document.addEventListener(t, (e) => { e.stopImmediatePropagation(); e.preventDefault(); }, true);
+}
+require.config({ paths: { vs: '/vs' } });
+require(['vs/editor/editor.main'], function () {
+  window.__fixtureMonaco = window.monaco;
+  try { delete window.monaco; } catch (e) { window.monaco = undefined; }
+  if (!Q.get('empty')) {
+    makeCell('x = 41\nprint(x + 1)');
+    const c2 = makeCell('y = 1/0');
+    focusCell(c2);
+    if (Q.get('readable')) { kernel.click(); run(cells[0]); run(c2); }
+  }
+  if (Q.get('empty')) document.getElementById('notebook-editor-element-1').remove();
+  window.__fixtureCells = cells;
+  window.__fixtureReady = true;
+});
+</script>
+</body></html>

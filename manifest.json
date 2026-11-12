@@ -49,6 +49,7 @@
         "https://*.kaggle.net/*"
       ],
       "js": [
+        "src/content/nb-helpers.js",
         "src/content/page.js"
       ],
       "world": "MAIN",
