@@ -14,6 +14,8 @@
 
 5. ModelScope Code Editor：`modelscope_server.py`（aiohttp，端口 8771）在 `modelscope.test` 上仿 `/code/workspace?instanceId=…` 外层页面，同源嵌 `iframe[title="notebook-ide"]` → `/notebook/main.html`（`modelscope_workbench.html`），另有同源 `extensionHostIframe.html` 诱饵和 `g.alicdn.test` 上的跨域 webview。工作台照抄真实抓取的 VS Code 原生 Notebook DOM（`.notebook-editor`、`monaco-list[aria-label="Notebook"]`、`.code-cell-row[data-index][aria-setsize]`、`aria-label="Add Code Cell"`、`.run-button-container a.codicon-notebook-execute`），单元格是真实 monaco-editor（`editContext: true`，即 `.native-edit-context` + 只读 `textarea.ime-text-area`），不暴露全局 monaco。“运行”是假的。验证：只连 notebook-ide frame、内核提示（`/usr/bin/python3` → 改选 `/usr/local/bin/python`）、读代码、输出读不到时让用户贴报错、点 + Code 插入并粘贴写入、确认后点 Execute Cell 运行、贴报错修复；`?readable=1` 输出在 DOM 里时直接读报错；`?nopaste=1` 粘贴被拦时改用 EditContext `textupdate`；`?nowrite=1` 全部写入方式失败时复制到剪贴板且不运行；`?empty=1` 和「我的 Notebook」页的提示。
 
+6. 0.1.1 新增的兜底：普通 JupyterLab（没暴露 app）通过监听器钩子找到 Notebook widget 直接写模型；AI Studio 场景里拦掉所有输入事件、关掉监听器钩子，验证仍能通过 webpack 共享作用域里的 `@jupyterlab/notebook` 写模型；AI Studio Monaco 夹具（旧版 Monaco 的 `textarea.inputarea`）分别测 AMD loader 里的 Monaco API（默认）、只能粘贴（`?noamd=1`）、全都写不进（`?notyping=1`，应复制到剪贴板且不运行，诊断信息里有失败步骤）；ModelScope 夹具测悬停才出现、只响应 mousedown 的 + Code（`?hover=1`）、中文“代码”按钮（`?zh=1`）、没有按钮时按 B（`?nobuttons=1`）、只能写进当前空单元格（`?noinsert=1`），以及“复制诊断信息”（包含所有 frame、候选按钮，不含代码/输出/Key）。fallback 检查里设置 `window.__nbacNoModel = true` 来测 DOM 兜底路径。
+
 侧边栏在测试里以独立弹窗（`index.html?tabId=…`）打开，界面和真正的侧边栏是同一个页面。
 
 ```bash

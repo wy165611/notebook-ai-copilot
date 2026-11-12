@@ -39,6 +39,7 @@
 
   <footer class="composer-wrap">
     <div id="notice" class="notice" hidden></div>
+    <textarea id="diagOutput" class="diag-output" readonly hidden></textarea>
     <div class="composer" id="composer">
       <div id="ctxChip" class="ctx-chip" hidden>
         <svg viewBox="0 0 24 24"><path d="M16.5 6v11.5a4 4 0 0 1-8 0V5a2.5 2.5 0 0 1 5 0v10.5a1 1 0 0 1-2 0V6H10v9.5a2.5 2.5 0 0 0 5 0V5a4 4 0 0 0-8 0v12.5a5.5 5.5 0 0 0 11 0V6h-1.5z"/></svg>
@@ -70,6 +71,7 @@
       <label class="menu-item"><input type="checkbox" id="includeContext" /> 附带当前单元格代码和最近的报错</label>
       <button class="menu-item" id="fixError">修复当前报错</button>
       <button class="menu-item" id="refresh">重新检测 Notebook</button>
+      <button class="menu-item" id="diagnose">复制诊断信息</button>
     </div>
     <div id="thinkMenu" class="menu" hidden>
       <div class="menu-title">思考强度</div>

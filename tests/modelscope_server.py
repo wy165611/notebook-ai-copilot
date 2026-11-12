@@ -37,7 +37,7 @@ async def handle(request):
     if host.startswith('g.alicdn'):
         return web.Response(text=WEBVIEW, content_type='text/html')
     if path == '/code/workspace':
-        extra = ''.join('&%s=%s' % (k, v) for k, v in request.query.items() if k in ('readable', 'nopaste', 'nowrite', 'kernel', 'empty'))
+        extra = ''.join('&%s=%s' % (k, v) for k, v in request.query.items() if k in ('readable', 'nopaste', 'nowrite', 'kernel', 'empty', 'hover', 'zh', 'nobuttons', 'noinsert'))
         return web.Response(text=TOP.replace('{{extra}}', extra).replace('{{port}}', port), content_type='text/html')
     if path == '/notebook/main.html':
         return web.Response(text=(HERE / 'modelscope_workbench.html').read_text().replace('{{port}}', port), content_type='text/html')

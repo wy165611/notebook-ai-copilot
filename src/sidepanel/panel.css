@@ -88,3 +88,5 @@ svg { width: 20px; height: 20px; fill: currentColor; flex: none; }
 .model-menu select:focus, .model-menu input:focus { border-color: var(--blue); }
 .model-list { max-height: 200px; overflow-y: auto; margin-top: 6px; }
 .model-list .menu-item { padding: 6px 8px; font-family: var(--mono); font-size: 12px; }
+
+.diag-output{display:block;width:calc(100% - 24px);margin:4px 12px;height:120px;font:11px/1.4 ui-monospace,Menlo,monospace;border:1px solid #dadce0;border-radius:8px;padding:6px;box-sizing:border-box}

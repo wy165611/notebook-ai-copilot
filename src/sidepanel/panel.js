@@ -12,6 +12,7 @@ let target = null; // {tabId, frameId, platform, kind}
 let busy = false;
 let history = []; // [{role, content}]
 let settings = null;
+let lastPanelError = null;
 
 const ICON = {
   copy: '<svg viewBox="0 0 24 24"><path d="M16 1H4a2 2 0 0 0-2 2v14h2V3h12V1zm3 4H8a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2zm0 16H8V7h11v14z"/></svg>',
@@ -33,17 +34,17 @@ const KIND_RANK = { jupyterlab: 3, 'vscode-notebook': 3, 'classic-notebook': 2, 
 let detectRetry = null;
 
 // 向标签页里所有 frame 广播检测请求，收集各 frame 的回报（sender.frameId），选出真正有 Notebook 的 frame
-async function collectReports(tabId, waitMs = 900) {
+async function collectReports(tabId, waitMs = 900, action = 'detect', replyType = 'nbac-detected') {
   const reqId = Math.random().toString(36).slice(2);
   const reports = [];
   const listener = (msg, sender) => {
-    if (!msg || msg.type !== 'nbac-detected' || msg.reqId !== reqId) return;
+    if (!msg || msg.type !== replyType || msg.reqId !== reqId) return;
     if (!sender.tab || sender.tab.id !== tabId) return;
     reports.push({ ...msg, frameId: sender.frameId });
   };
   chrome.runtime.onMessage.addListener(listener);
   try {
-    await withTimeout(chrome.tabs.sendMessage(tabId, { type: 'nbac', action: 'detect', reqId }), 3000);
+    await withTimeout(chrome.tabs.sendMessage(tabId, { type: 'nbac', action, reqId }), 3000);
   } catch { /* 页面上没有内容脚本 */ }
   await new Promise((r) => setTimeout(r, waitMs));
   chrome.runtime.onMessage.removeListener(listener);
@@ -67,7 +68,7 @@ async function detect(attempt = 0) {
   if (best) {
     target = { tabId, frameId: best.frameId, platform: best.platform, kind: best.kind };
     const where = best.top ? '主页面' : '内嵌 frame';
-    setStatus(`已连接：${best.platform}（${best.kind}${best.viaApp ? '，JupyterLab API' : ''}，${where}）`, 'ok');
+    setStatus(`已连接：${best.platform}（${best.kind}${best.viaApp ? '，JupyterLab API' : best.viaModel ? '，JupyterLab 模型' : ''}，${where}）`, 'ok');
     if (best.notice) showNotice(best.notice);
     else if (best.kind === 'vscode-notebook' && /内核/.test($('notice').textContent)) showNotice('');
     $('status').title = reports.map((r) => `frame ${r.frameId}${r.top ? '(top)' : ''}: ${r.detected ? r.kind + ' ' + r.cellCount + ' 个单元格' : '不是 Notebook'}  ${String(r.url).split('?')[0]}`).join('\n');
@@ -275,21 +276,23 @@ function renderBot(m, { text, code, meta, error }) {
       const r = await call('insertCellBelow', { code: ta.value });
       if (/footer|末尾/.test(r.via)) r.via += '，找不到“在下方插入”，已加到 Notebook 末尾';
       if (r.notice) showNotice(r.notice);
+      const intoEmpty = /^current-empty-cell/.test(r.via);
+      const where = intoEmpty ? '没法新建单元格，已写入当前选中的空单元格' : '已插入新单元格';
       if (andRun) {
         const rr = await call('runCell', {});
         if (rr && rr.notice) showNotice(rr.notice);
-        setResult(`已插入新单元格并开始运行（${r.via}）`);
-      } else setResult(`已插入到新单元格（${r.via}），检查无误后在 Notebook 里运行`);
+        setResult(`${where}并开始运行（${r.via}）`);
+      } else setResult(`${intoEmpty ? where : '已插入到新单元格'}（${r.via}），检查无误后在 Notebook 里运行`);
     } catch (e) {
-      const msg = String(e.message || e);
-      if (msg.startsWith('NBAC_WRITE_FAILED:')) {
-        // 写不进编辑器：把代码放到剪贴板，让用户手动粘贴；不运行
-        let copied = true;
-        try { await navigator.clipboard.writeText(ta.value); } catch { try { ta.select(); copied = document.execCommand('copy'); } catch { copied = false; } }
-        const why = msg.slice('NBAC_WRITE_FAILED:'.length);
-        setResult('插入失败：' + why + (copied ? '。代码已复制到剪贴板，请点进新单元格按 Ctrl+V 粘贴' : '。请点“复制”后手动粘贴') + (andRun ? '（没有运行）' : ''), true);
-        showNotice('自动写入单元格失败' + (copied ? '，代码已复制到剪贴板' : ''));
-      } else setResult('插入失败：' + msg, true);
+      // 插入或写入失败：把代码放到剪贴板，让用户手动粘贴；不运行
+      lastPanelError = { action: andRun ? 'insert+run' : 'insert', message: String(e.message || e).slice(0, 300), at: new Date().toISOString() };
+      let msg = String(e.message || e);
+      const writeFailed = msg.startsWith('NBAC_WRITE_FAILED:');
+      if (writeFailed) msg = msg.slice('NBAC_WRITE_FAILED:'.length);
+      let copied = true;
+      try { await navigator.clipboard.writeText(ta.value); } catch { try { ta.select(); copied = document.execCommand('copy'); } catch { copied = false; } }
+      setResult('插入失败：' + msg + (copied ? '。代码已复制到剪贴板，请点进 Notebook 的单元格按 Ctrl+V（Mac 上 ⌘V）粘贴' : '。请点“复制”后手动粘贴') + (andRun ? '（没有运行）' : ''), true);
+      showNotice((writeFailed ? '自动写入单元格失败' : '自动插入单元格失败') + (copied ? '，代码已复制到剪贴板' : '') + '。如果一直这样，可以点“+ → 复制诊断信息”发给开发者');
     }
     finally { for (const b of [bIns, bRun, bOk]) b.disabled = false; confirm.hidden = true; }
   };
@@ -342,6 +345,36 @@ async function send(fix) {
 
 function autoGrow() { const t = $('prompt'); t.style.height = 'auto'; t.style.height = Math.min(160, t.scrollHeight) + 'px'; }
 
+
+// ---------- 诊断信息：每个 frame 的结构信息（不含代码、输出和 Key），复制到剪贴板 ----------
+async function copyDiagnostics() {
+  closeMenus();
+  showNotice('正在收集诊断信息…');
+  const tabId = await activeTabId();
+  const reports = tabId ? await collectReports(tabId, 1500, 'diagnose', 'nbac-diag') : [];
+  let tab = null;
+  try { tab = tabId ? await chrome.tabs.get(tabId) : null; } catch { /* ignore */ }
+  const data = {
+    tool: 'Notebook AI Copilot', version: chrome.runtime.getManifest().version, at: new Date().toISOString(),
+    userAgent: navigator.userAgent, tabUrl: tab && tab.url ? tab.url.split(/[?#]/)[0] : null,
+    target: target ? { frameId: target.frameId, platform: target.platform, kind: target.kind } : null,
+    status: $('status').textContent.slice(0, 200), lastPanelError,
+    frames: reports.sort((a, b) => a.frameId - b.frameId).map((r) => ({ frameId: r.frameId, ...r.frame }))
+  };
+  const text = JSON.stringify(data, null, 1);
+  let copied = false;
+  try { await navigator.clipboard.writeText(text); copied = true; } catch {
+    const t = document.createElement('textarea'); t.value = text; document.body.appendChild(t); t.select();
+    try { copied = document.execCommand('copy'); } catch { copied = false; }
+    t.remove();
+  }
+  const box = $('diagOutput');
+  box.value = text; box.hidden = copied;
+  showNotice(copied ? `诊断信息已复制到剪贴板（${data.frames.length} 个 frame，${text.length} 字），直接粘贴发给开发者即可。不含代码、输出和 API Key。`
+    : '复制失败：诊断信息在下面的框里，请全选后手动复制。');
+  return data;
+}
+
 // ---------- 事件 ----------
 $('send').addEventListener('click', () => send(false));
 $('prompt').addEventListener('input', autoGrow);
@@ -363,6 +396,8 @@ document.addEventListener('click', () => closeMenus());
 $('includeContext').addEventListener('change', async (e) => { await saveSettings({ includeContext: e.target.checked }); await refreshSettings(); });
 $('fixError').addEventListener('click', () => send(true));
 $('refresh').addEventListener('click', () => { closeMenus(); detect(); });
+$('diagnose').addEventListener('click', () => { copyDiagnostics(); });
+if (forcedTabId) window.copyDiagnosticsForTest = copyDiagnostics; // 测试用
 $('providerSelect').addEventListener('change', async (e) => {
   await saveSettings({ active: e.target.value });
   await refreshSettings();

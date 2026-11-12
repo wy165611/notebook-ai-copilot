@@ -6,6 +6,9 @@
      工具栏 a.action-label[aria-label="Add Code Cell"] 等；运行按钮 .run-button-container a.codicon-notebook-execute。
      输出默认渲染在跨域 webview iframe 里（扩展读不到）；?readable=1 时把输出写成 .output 里的 DOM 文字。
      “运行”是假的：只识别 1/0 和 NBAC_* 测试输出。内核默认 /usr/bin/python3（运行时报缺 ipykernel），点内核按钮切到 /usr/local/bin/python。
+     ?hover=1：没有工具栏 + Code；单元格下方的 + Code 只在鼠标移到单元格上时才渲染，没有 aria-label（只有 title + 文字），而且只响应 mousedown；
+     ?zh=1：只有工具栏的中文“代码”按钮（aria-label="添加代码单元格"）；?nobuttons=1：没有任何 + Code 按钮，只能在列表上按 B；
+     ?noinsert=1：既没按钮也不响应 B，当前选中的是一个空单元格（应写进这个空单元格）；
      ?nopaste=1：拦掉 paste 事件（测试 EditContext textupdate 写入）；?nowrite=1：拦掉所有写入方式（测试剪贴板兜底）；?empty=1：没打开 Notebook。 -->
 <html lang="en"><head><meta charset="utf-8"><title>Untitled-1.ipynb - Untitled (Workspace)</title>
 <style>body{margin:0;font:13px sans-serif}.monaco-workbench{display:flex;height:100vh}.sidebar{width:200px;border-right:1px solid #ddd}
@@ -22,7 +25,7 @@ iframe.webview{position:absolute;left:30px;width:60%;height:24px;border:0}.quick
   <div class="notebook-editor" id="notebook-editor-element-0"></div>
   <div class="notebook-editor" id="notebook-editor-element-1">
    <div class="notebook-toolbar-container"><div class="notebook-toolbar-left"><div class="monaco-toolbar"><div class="monaco-action-bar"><ul class="actions-container" role="toolbar">
-    <li class="action-item"><a class="action-label codicon codicon-add" role="button" aria-label="Add Code Cell">+</a><a class="notebook-label">Code</a></li>
+    <li class="action-item"><a class="action-label codicon codicon-add" role="button" aria-label="Add Code Cell" id="tbAddCode">+</a><a class="notebook-label">Code</a></li>
     <li class="action-item"><a class="action-label codicon codicon-add" role="button" aria-label="Add Markdown Cell">+</a><a class="notebook-label">Markdown</a></li>
     <li><a class="action-label codicon codicon-notebook-execute-all" role="button" aria-label="Run All">▷</a><a class="notebook-label">Run All</a></li>
     <li><a class="action-label disabled icon" role="button" aria-label="Restart Kernel">↻</a></li>
@@ -32,7 +35,7 @@ iframe.webview{position:absolute;left:30px;width:60%;height:24px;border:0}.quick
    <div class="cell-list-container">
     <div class="monaco-list list_id_5 mouse-support selection-single element-focused" tabindex="0" role="list" aria-label="Notebook" aria-multiselectable="true" id="list">
      <div class="monaco-list-rows" id="rows">
-      <div class="view-zones"><div notebook-view-zone="1"><div class="cell-list-top-cell-toolbar-container"><a class="action-label" role="button" aria-label="Add Code Cell">+ Code</a><a class="action-label" role="button" aria-label="Add Markdown Cell">+ Markdown</a></div></div></div>
+      <div class="view-zones"><div notebook-view-zone="1"><div class="cell-list-top-cell-toolbar-container"><a class="action-label" role="button" aria-label="Add Code Cell" id="topAddCode">+ Code</a><a class="action-label" role="button" aria-label="Add Markdown Cell">+ Markdown</a></div></div></div>
      </div>
     </div>
    </div>
@@ -44,6 +47,8 @@ iframe.webview{position:absolute;left:30px;width:60%;height:24px;border:0}.quick
 <script src="/vs/loader.js"></script>
 <script>
 const Q = new URLSearchParams(location.search);
+const MODE = { hover: !!Q.get('hover'), zh: !!Q.get('zh'), nobuttons: !!Q.get('nobuttons'), noinsert: !!Q.get('noinsert') };
+MODE.plainBottom = !(MODE.hover || MODE.zh || MODE.nobuttons || MODE.noinsert);
 const PORT = '{{port}}';
 const rowsEl = document.getElementById('rows');
 const list = document.getElementById('list');
@@ -74,7 +79,8 @@ function makeCell(code, afterIdx) {
     '<div class="cell-editor-part"><div class="cell-editor-container" data-mode-id="python"></div>' +
     '<div class="cell-statusbar-container"><div class="cell-status-right"><div class="cell-status-item" aria-label="Python">Python</div></div></div></div></div>' +
     '<div class="output" aria-hidden="true"></div>' +
-    '<div class="cell-bottom-toolbar-container"><a class="action-label" role="button" aria-label="Add Code Cell"><span class="codicon codicon-add"></span> Code</a><a class="action-label" role="button" aria-label="Add Markdown Cell"> Markdown</a></div>' +
+    '<div class="cell-bottom-toolbar-container">' + (MODE.plainBottom ? '<a class="action-label" role="button" aria-label="Add Code Cell"><span class="codicon codicon-add"></span> Code</a>' : '') +
+    '<a class="action-label" role="button" aria-label="Add Markdown Cell"> Markdown</a></div>' +
     '</div>';
   const at = afterIdx == null ? cells.length : afterIdx + 1;
   const ref = cells[at] ? cells[at].row : null;
@@ -85,7 +91,22 @@ function makeCell(code, afterIdx) {
   cells.splice(at, 0, c); renumber();
   row.addEventListener('mousedown', () => focusCell(c), true);
   ed.onDidFocusEditorText(() => focusCell(c));
-  row.querySelector('.cell-bottom-toolbar-container a[aria-label="Add Code Cell"]').addEventListener('click', () => addAfter(cells.indexOf(c)));
+  const plain = row.querySelector('.cell-bottom-toolbar-container a[aria-label="Add Code Cell"]');
+  if (plain) plain.addEventListener('click', () => addAfter(cells.indexOf(c)));
+  if (MODE.hover) {
+    // 悬停才出现的 + Code：只有 title 和文字，只响应 mousedown
+    const show = () => {
+      const bar = row.querySelector('.cell-bottom-toolbar-container');
+      if (bar.querySelector('.hover-add')) return;
+      const a = document.createElement('a');
+      a.className = 'action-label hover-add'; a.setAttribute('role', 'button'); a.title = 'Add Code Cell (Ctrl+Shift+B)';
+      a.innerHTML = '<span class="codicon codicon-add"></span> Code';
+      a.addEventListener('mousedown', (e) => { e.preventDefault(); addAfter(cells.indexOf(c)); });
+      bar.prepend(a);
+    };
+    row.addEventListener('mouseover', show);
+    row.addEventListener('mouseleave', () => { const h = row.querySelector('.hover-add'); if (h) h.remove(); });
+  }
   row.querySelector('a.codicon-notebook-execute').addEventListener('click', () => run(c));
   return c;
 }
@@ -114,11 +135,21 @@ function run(c) {
     rowsEl.prepend(w);
   }
 }
-document.querySelector('.notebook-toolbar-container a[aria-label="Add Code Cell"]').addEventListener('click', () => {
-  const f = cells.findIndex((c) => c.row.classList.contains('focused'));
-  addAfter(f >= 0 ? f : cells.length - 1);
-});
-document.querySelector('.cell-list-top-cell-toolbar-container a[aria-label="Add Code Cell"]').addEventListener('click', () => addAfter(-1));
+const focusedIdx = () => { const f = cells.findIndex((c) => c.row.classList.contains('focused')); return f >= 0 ? f : cells.length - 1; };
+document.getElementById('tbAddCode').addEventListener('click', () => addAfter(focusedIdx()));
+document.getElementById('topAddCode').addEventListener('click', () => addAfter(-1));
+if (MODE.zh) {
+  const a = document.getElementById('tbAddCode');
+  a.setAttribute('aria-label', '添加代码单元格'); a.nextElementSibling.textContent = '代码';
+}
+if (MODE.hover || MODE.nobuttons || MODE.noinsert) document.getElementById('tbAddCode').parentElement.remove();
+if (MODE.hover || MODE.zh || MODE.nobuttons || MODE.noinsert) document.getElementById('topAddCode').remove();
+if (MODE.nobuttons) {
+  // 命令模式（焦点在列表上、不在编辑器里）按 B：在当前单元格下方插入
+  list.addEventListener('keydown', (e) => {
+    if ((e.key === 'b' || e.key === 'B') && !(e.target.closest && e.target.closest('.monaco-editor'))) { e.preventDefault(); addAfter(focusedIdx()); }
+  });
+}
 kernel.addEventListener('click', () => { kernel.setAttribute('aria-label', '/usr/local/bin/python'); kernel.nextElementSibling.textContent = 'Python 3.11.11'; });
 if (Q.get('kernel') === 'local') kernel.click();
 if (Q.get('nopaste') || Q.get('nowrite')) document.addEventListener('paste', (e) => { e.stopImmediatePropagation(); e.preventDefault(); }, true);
@@ -132,10 +163,13 @@ require.config({ paths: { vs: '/vs' } });
 require(['vs/editor/editor.main'], function () {
   window.__fixtureMonaco = window.monaco;
   try { delete window.monaco; } catch (e) { window.monaco = undefined; }
+  // VS Code 网页版是打包好的 ESM，页面上没有 AMD loader：把 require/define 也藏起来，扩展只能靠粘贴/EditContext 写入
+  window.__fixtureRequire = window.require; window.require = undefined; window.define = undefined;
   if (!Q.get('empty')) {
     makeCell('x = 41\nprint(x + 1)');
     const c2 = makeCell('y = 1/0');
     focusCell(c2);
+    if (MODE.noinsert) focusCell(makeCell(''));
     if (Q.get('readable')) { kernel.click(); run(cells[0]); run(c2); }
   }
   if (Q.get('empty')) document.getElementById('notebook-editor-element-1').remove();

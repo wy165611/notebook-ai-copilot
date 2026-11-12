@@ -57,4 +57,28 @@ assert.deepEqual(filterChatModels(['qwen3.8-max', 'paraformer-v2', 'qwen-tts', '
   assert.match(ms({ label: '/usr/local/bin/python', pageText: "Running cells with 'Python 3.10.12' requires the ipykernel package." }), /没有 ipykernel/);
 }
 
+// ---------- early.js：记录 Lumino widget 这种“对象监听器” ----------
+{
+  const calls = [];
+  class FakeTarget { addEventListener(type, l) { calls.push([type, l]); } }
+  const sandbox = { EventTarget: FakeTarget };
+  sandbox.window = sandbox;
+  vm.runInNewContext(fs.readFileSync(new URL('../src/content/early.js', import.meta.url), 'utf8'), sandbox);
+  const map = sandbox.__nbacEarly.listenerObjects;
+  const node = new FakeTarget();
+  const other = { node, handleEvent() {} };
+  const nb = { node, handleEvent() {}, get activeCell() { return null; } };
+  node.addEventListener('focusin', other);
+  assert.equal(map.get(node), other);
+  node.addEventListener('mousedown', nb);
+  assert.equal(map.get(node), nb, '有 activeCell 的 widget 优先');
+  node.addEventListener('keydown', other);
+  assert.equal(map.get(node), nb, '不会被后注册的普通对象覆盖');
+  const n2 = new FakeTarget();
+  n2.addEventListener('click', () => {});
+  n2.addEventListener('click', { handleEvent() {}, node: {} });
+  assert.equal(map.get(n2), undefined, '函数监听器、node 不是自己的对象都不记录');
+  assert.equal(calls.length, 5, '原来的 addEventListener 照常被调用');
+}
+
 console.log('unit tests passed');

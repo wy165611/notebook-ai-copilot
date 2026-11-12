@@ -24,6 +24,14 @@
     return null;
   }
 
+  // ---------- 诊断：记录最近一次插入/写入的步骤和错误（不含代码内容） ----------
+  let steps = [];
+  let lastError = null;
+  function trace(step, info) {
+    steps.push(info ? { step, ...info } : { step });
+    if (steps.length > 40) steps.shift();
+  }
+
   // ---------- 通用：键盘事件 ----------
   const KEYCODES = { Escape: 27, Enter: 13, b: 66, B: 66 };
   function key(target, k, opts = {}) {
@@ -60,10 +68,24 @@
     return null;
   }
 
+  // 找 Monaco 的命名空间：全局 window.monaco，或 AMD loader 里已经加载的 vs/editor/editor.main
+  function monacoNamespace() {
+    if (window.monaco && window.monaco.editor && window.monaco.editor.getEditors) return { ns: window.monaco, via: 'window.monaco' };
+    const req = window.require;
+    try {
+      if (typeof req === 'function' && (!req.defined || req.defined('vs/editor/editor.main'))) {
+        const ns = req('vs/editor/editor.main');
+        if (ns && ns.editor && ns.editor.getEditors) return { ns, via: 'amd-require' };
+      }
+    } catch { /* 不是 AMD 或模块没加载 */ }
+    return null;
+  }
+
   function monacoInstance(monacoEl) {
-    const m = window.monaco;
-    if (!m || !m.editor || !m.editor.getEditors) return null;
-    return m.editor.getEditors().find((e) => { const d = e.getDomNode && e.getDomNode(); return d && (d === monacoEl || monacoEl.contains(d) || d.contains(monacoEl)); }) || null;
+    const m = monacoNamespace();
+    if (!m) return null;
+    const ed = m.ns.editor.getEditors().find((e) => { const d = e.getDomNode && e.getDomNode(); return d && (d === monacoEl || monacoEl.contains(d) || d.contains(monacoEl)); });
+    return ed ? { ed, via: m.via } : null;
   }
 
   // Monaco 渲染出来的行：按 top 排序（DOM 顺序不一定等于行号顺序），&nbsp; 还原成空格
@@ -79,8 +101,8 @@
     if (cm5 && cm5.CodeMirror) return cm5.CodeMirror.getValue();
     const monacoEl = root.matches('.monaco-editor') ? root : root.querySelector('.monaco-editor');
     if (monacoEl) {
-      const ed = monacoInstance(monacoEl);
-      if (ed) return ed.getValue();
+      const mi = monacoInstance(monacoEl);
+      if (mi) return mi.ed.getValue();
       // 没有全局 monaco（如飞桨 AI Studio 的 BML Codelab）：读渲染出来的行。
       // Monaco 用 &nbsp; 渲染空格；超长单元格只渲染可见的行
       return monacoViewText(monacoEl);
@@ -103,24 +125,7 @@
     const cm5 = root.matches && root.matches('.CodeMirror') ? root : root.querySelector('.CodeMirror');
     if (cm5 && cm5.CodeMirror) { cm5.CodeMirror.setValue(text); return 'cm5'; }
     const monacoEl = root.matches('.monaco-editor') ? root : root.querySelector('.monaco-editor');
-    if (monacoEl) {
-      const ed = monacoInstance(monacoEl);
-      if (ed) { ed.setValue(text); return 'monaco'; }
-      // 没有全局 monaco：对 Monaco 的隐藏 textarea 发一个“粘贴”事件（粘贴不会触发自动补括号）
-      const ta = monacoEl.querySelector('textarea.inputarea, textarea, .native-edit-context');
-      if (!ta) throw new Error('找不到 Monaco 编辑器的输入区');
-      ta.focus();
-      if (getEditorText(monacoEl).trim()) {
-        key(ta, 'a', { ctrlKey: !/Mac/.test(navigator.platform), metaKey: /Mac/.test(navigator.platform) });
-      }
-      const dt = new DataTransfer();
-      dt.setData('text/plain', text);
-      ta.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
-      await sleep(120);
-      const got = getEditorText(monacoEl);
-      if (got.trim().split('\n')[0] !== text.trim().split('\n')[0]) throw new Error('写入 Monaco 编辑器失败');
-      return 'monaco-paste';
-    }
+    if (monacoEl) return writeMonaco(monacoEl, text);
     // 兜底：模拟用户输入（CodeMirror 6 会处理 beforeinput/insertText）
     const ce = (root.matches('[contenteditable="true"],textarea') ? root : null) ||
       root.querySelector('.cm-content,[contenteditable="true"],textarea');
@@ -136,6 +141,150 @@
     document.execCommand('insertText', false, text);
     return 'input-events';
   }
+
+  // ---------- 通用：写入 Monaco（没有可用的模型 API 时才用） ----------
+  const WRITE_FAILED = 'NBAC_WRITE_FAILED';
+  async function writeMonaco(monacoEl, code) {
+    // ① Monaco 自己的 API（能找到编辑器实例时最可靠）
+    const mi = monacoInstance(monacoEl);
+    if (mi) {
+      mi.ed.setValue(code);
+      if (H.codeMatches(mi.ed.getValue(), code)) return 'monaco-api(' + mi.via + ')';
+    }
+    const target = monacoEl.querySelector('.native-edit-context') || monacoEl.querySelector('textarea.inputarea') ||
+      monacoEl.querySelector('textarea:not([readonly])');
+    if (!target) throw new Error(WRITE_FAILED + ':找不到 Monaco 编辑器的输入区');
+    const ok = () => H.codeMatches(monacoViewText(monacoEl), code);
+    const selectAll = () => {
+      if (!H.normCode(monacoViewText(monacoEl))) return;
+      const mac = /Mac/.test(navigator.platform);
+      key(target, 'a', { ctrlKey: !mac, metaKey: mac });
+    };
+    const methods = [
+      ['paste', () => {
+        // 粘贴不会触发自动补括号/自动缩进，是最准确的
+        const dt = new DataTransfer();
+        dt.setData('text/plain', code);
+        target.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true, composed: true }));
+      }],
+      ['editcontext', () => {
+        // VS Code / 新版 Monaco 用 EditContext 接收输入：发一次 textupdate 事件。
+        // 让替换范围比当前选区多 1 个字符，Monaco 会走“输入法组合输入”分支，按原文插入，
+        // 不会自动缩进/补括号（普通 type 分支会给多行文本加缩进）。新单元格是空的，多出的 1 个字符什么也删不掉。
+        const ec = target.editContext;
+        if (!ec || typeof TextUpdateEvent !== 'function') return;
+        const from = ec.selectionStart, to = ec.selectionEnd + 1;
+        ec.dispatchEvent(new TextUpdateEvent('textupdate', { text: code, updateRangeStart: from, updateRangeEnd: to,
+          selectionStart: from + code.length, selectionEnd: from + code.length }));
+      }],
+      ['execCommand', () => { document.execCommand('insertText', false, code); }],
+      ['beforeinput', () => {
+        const o = { inputType: 'insertText', data: code, bubbles: true, cancelable: true, composed: true };
+        if (target.dispatchEvent(new InputEvent('beforeinput', o))) target.dispatchEvent(new InputEvent('input', o));
+      }]
+    ];
+    const tried = [];
+    for (const [name, fn] of methods) {
+      tried.push(name);
+      target.focus();
+      await sleep(30);
+      selectAll();
+      try { await fn(); } catch { /* 试下一个 */ }
+      if (await waitFor(ok, 800, 60)) return 'monaco-' + name;
+    }
+    const left = H.normCode(monacoViewText(monacoEl));
+    trace('monaco-write-failed', { tried, input: target.className || target.tagName, rendered: left.split('\n').length });
+    throw new Error(WRITE_FAILED + ':没能把代码写进 Monaco 编辑器' + (left ? '（单元格里可能留下了不完整的内容，请先清空）' : ''));
+  }
+
+  // ---------- JupyterLab 模型定位：页面没暴露 window.jupyterapp 时，从 webpack 运行时里拿 @jupyterlab/notebook ----------
+  // 做法：往 webpackChunk_* 数组里 push 一个探针 chunk，拿到 __webpack_require__；
+  // 从 module federation 的共享作用域（__webpack_require__.S）或模块缓存（.c）里取出页面正在用的 @jupyterlab/notebook；
+  // 给 Notebook.prototype.handleEvent 打个补丁记录 this（Notebook widget），再对 .jp-Notebook 派发一个无副作用的
+  // lm-dragleave 事件触发它，就能从 DOM 节点找到 Notebook widget，直接操作单元格模型（setSource），不用往编辑器里“打字”。
+  const labFinder = {
+    req: null, mod: null, byNode: new WeakMap(), patched: false, info: {},
+    webpackRequire() {
+      if (this.req) return this.req;
+      const keys = Object.keys(window).filter((k) => /^webpackChunk/.test(k));
+      this.info.chunks = keys;
+      for (const k of keys) {
+        const ch = window[k];
+        // 运行时还没加载时 push 是原生的 Array.prototype.push，不能往里塞东西
+        if (!ch || typeof ch.push !== 'function' || ch.push === Array.prototype.push) continue;
+        try { ch.push([['nbac-probe-' + Date.now() + '-' + Math.random()], {}, (r) => { this.req = r; }]); } catch (e) { this.info.pushError = String(e && e.message || e); }
+        if (this.req) { this.info.chunk = k; break; }
+      }
+      return this.req;
+    },
+    async module() {
+      if (this.mod) return this.mod;
+      const req = this.webpackRequire();
+      if (!req) return null;
+      let m = null;
+      try {
+        for (const [scopeName, sc] of Object.entries(req.S || {})) {
+          const entry = sc && sc['@jupyterlab/notebook'];
+          this.info.shared = Object.keys(sc || {}).filter((k) => /^@jupyterlab\/(application|notebook|cells)$|monaco/.test(k))
+            .map((k) => k + '@' + Object.keys(sc[k]).join('|')).slice(0, 10);
+          if (!entry) continue;
+          // 只取已经加载（页面正在用）的版本；取没加载的版本会得到另一份类，补丁不起作用
+          const v = Object.keys(entry).find((x) => entry[x] && entry[x].loaded);
+          if (!v) continue;
+          const f = await entry[v].get();
+          const mod = typeof f === 'function' ? f() : f;
+          if (mod && mod.NotebookActions && mod.Notebook) { m = mod; this.info.via = 'share-scope:' + scopeName + ':' + v; break; }
+        }
+      } catch (e) { this.info.shareError = String(e && e.message || e); }
+      if (!m && req.c) {
+        for (const id of Object.keys(req.c)) {
+          const e = req.c[id] && req.c[id].exports;
+          if (e && e.NotebookActions && e.Notebook && e.NotebookPanel) { m = e; this.info.via = 'module-cache'; break; }
+        }
+      }
+      if (m) { this.mod = m; this.modVia = this.info.via; this.patch(m); }
+      return m;
+    },
+    patch(m) {
+      if (this.patched) return;
+      this.patched = true;
+      const self = this;
+      for (const C of [m.Notebook, m.StaticNotebook]) {
+        if (!C || !C.prototype || !Object.prototype.hasOwnProperty.call(C.prototype, 'handleEvent')) continue;
+        const orig = C.prototype.handleEvent;
+        C.prototype.handleEvent = function () {
+          try { if (this && this.node) self.byNode.set(this.node, this); } catch { /* ignore */ }
+          return orig.apply(this, arguments);
+        };
+      }
+    },
+    async widgetFor(node) {
+      if (!node || window.__nbacNoModel) return null;
+      // ① document_start 时记下的监听器对象（不依赖 webpack）
+      const early = window.__nbacEarly && !window.__nbacNoListenerHook ? window.__nbacEarly.listenerObjects.get(node) : null;
+      if (early && 'activeCell' in early && early.widgets) {
+        this.info.via = 'listener-hook';
+        // 顺便尝试拿 NotebookActions（拿不到也能用模型直接插入）
+        let mod = null;
+        try { mod = await this.module(); } catch { /* ignore */ }
+        this.info.via = 'listener-hook';
+        this.info.actions = this.modVia || null;
+        return { nb: early, mod };
+      }
+      // ② webpack 运行时
+      let m = null;
+      try { m = await this.module(); } catch (e) { this.info.error = String(e && e.message || e); }
+      if (!m) return null;
+      this.info.via = this.modVia;
+      let w = this.byNode.get(node);
+      for (const t of ['lm-dragleave', 'p-dragleave']) {
+        if (w) break;
+        try { node.dispatchEvent(new Event(t, { cancelable: true })); } catch { /* ignore */ }
+        w = this.byNode.get(node);
+      }
+      return w && 'activeCell' in w && w.widgets ? { nb: w, mod: m } : null;
+    }
+  };
 
   // ---------- 适配器 1：JupyterLab（AI Studio BML Codelab、ModelScope/DSW、Kaggle 新编辑器若基于 JupyterLab） ----------
   const jupyterLab = {
@@ -175,9 +324,11 @@
       if (sm && sm.setSource) return sm.setSource(text);
       if (cellModel.value) cellModel.value.text = text; // JupyterLab 3
     },
-    getActiveCellCode() {
+    async getActiveCellCode() {
       const w = this.panelWidget();
       if (w && w.content.activeCell) return this.cellSource(w.content.activeCell.model);
+      const f = await labFinder.widgetFor(this.notebookNode());
+      if (f && f.nb.activeCell) return this.cellSource(f.nb.activeCell.model);
       const cell = this.activeCellNode();
       return cell ? getEditorText(cell.querySelector('.jp-InputArea-editor') || cell) : '';
     },
@@ -206,6 +357,7 @@
       return btns[0] || null;
     },
     async insertCellBelow(code) {
+      steps = [];
       const w = this.panelWidget();
       const a = this.app();
       if (w && a) {
@@ -213,7 +365,38 @@
         try { await a.commands.execute('notebook:change-cell-to-code'); } catch { /* ignore */ }
         const cell = w.content.activeCell;
         this.setCellSource(cell.model, code);
-        return { inserted: true, via: 'jupyterlab-commands' };
+        if (H.codeMatches(this.cellSource(cell.model), code)) return { inserted: true, via: 'jupyterlab-commands' };
+        trace('commands-setSource-mismatch');
+        const how = await setEditorText(cell.node.querySelector('.jp-InputArea-editor') || cell.node, code);
+        return { inserted: true, via: 'jupyterlab-commands+' + how };
+      }
+      // 没暴露 app 时：从 webpack 运行时找到 Notebook widget，直接改单元格模型
+      const f = await labFinder.widgetFor(this.notebookNode());
+      trace('lab-model', { found: !!f, info: labFinder.info });
+      if (f) {
+        const { nb, mod } = f;
+        const n0 = nb.widgets.length;
+        if (mod && mod.NotebookActions) {
+          mod.NotebookActions.insertBelow(nb);
+          if (nb.activeCell && nb.activeCell.model.type !== 'code') { try { mod.NotebookActions.changeCellType(nb, 'code'); } catch { /* ignore */ } }
+        } else {
+          // 没有 NotebookActions：直接往 Notebook 模型里插一个代码单元格
+          const idx = nb.activeCellIndex;
+          const sm = nb.model && nb.model.sharedModel;
+          if (sm && sm.insertCell) sm.insertCell(idx + 1, { cell_type: 'code', source: '' });
+          else if (nb.model && nb.model.cells && nb.model.contentFactory) nb.model.cells.insert(idx + 1, nb.model.contentFactory.createCodeCell({}));
+          nb.activeCellIndex = idx + 1;
+        }
+        const cell = nb.activeCell;
+        if (cell && nb.widgets.length > n0) {
+          this.setCellSource(cell.model, code);
+          try { cell.node.scrollIntoView({ block: 'center' }); } catch { /* ignore */ }
+          if (H.codeMatches(this.cellSource(cell.model), code)) return { inserted: true, via: 'jupyterlab-model(' + (labFinder.info.via || '') + ')' };
+          trace('model-setSource-mismatch');
+          const how = await setEditorText(cell.node.querySelector('.jp-InputArea-editor') || cell.node, code);
+          return { inserted: true, via: 'jupyterlab-model+' + how };
+        }
+        trace('model-insert-failed', { before: n0, after: nb.widgets.length });
       }
       // DOM 方式
       const nb = this.notebookNode();
@@ -267,6 +450,13 @@
       if (w && a) {
         await a.commands.execute('notebook:run-cell');
         return { ran: true, via: 'jupyterlab-commands' };
+      }
+      const f = await labFinder.widgetFor(this.notebookNode());
+      if (f && f.mod && f.mod.NotebookActions && f.nb.activeCell) {
+        const panel = f.nb.parent;
+        // 不等运行结束（可能很久）；出错会显示在单元格输出里
+        Promise.resolve(f.mod.NotebookActions.run(f.nb, panel && panel.sessionContext)).catch(() => {});
+        return { ran: true, via: 'jupyterlab-model' };
       }
       const btn = this.toolbarButton('notebook:run-cell-and-select-next') || this.toolbarButton('notebook:run-cell');
       if (btn) { press(btn); return { ran: true, via: 'toolbar-button' }; }
@@ -392,7 +582,6 @@
   // .notebook-editor > .notebook-toolbar-container（a[aria-label="Add Code Cell"] 等）+ .cell-list-container >
   // div.monaco-list[aria-label="Notebook"] > .monaco-list-row.code-cell-row[data-index][aria-setsize]（当前单元格有 .focused/.selected）。
   // 单元格编辑器是 Monaco，用 EditContext（.native-edit-context），没有全局 monaco；输出渲染在跨域 webview 里，通常读不到文字。
-  const WRITE_FAILED = 'NBAC_WRITE_FAILED';
   const vscodeNotebook = {
     kind: 'vscode-notebook',
     editor() {
@@ -451,94 +640,164 @@
       const lab = btn && btn.parentElement && btn.parentElement.querySelector('.kernel-label');
       return H.vscodeKernelHint({ hasButton: !!btn, label: btn ? (btn.getAttribute('aria-label') || '') + ' ' + (lab ? lab.textContent : '') : '', pageText: document.body.innerText || '' });
     },
-    button(scope, label) {
-      if (!scope) return null;
-      const all = Array.from(scope.querySelectorAll(`a.action-label[aria-label="${label}"], [role="button"][aria-label="${label}"]`));
-      return all.find(visible) || all[0] || null;
+    uriOf(row) { const m = this.monacoOf(row); return (m && m.getAttribute('data-uri')) || ''; },
+    snapshot() { return { total: this.total(), uris: new Set(this.rows().map((r) => this.uriOf(r)).filter(Boolean)) }; },
+    grew(snap) {
+      if (this.total() > snap.total) return true;
+      // 虚拟列表里总数没变化时：当前行是一个没见过的（新）单元格，且是空的
+      const a = this.activeRow();
+      const u = a && this.uriOf(a);
+      return !!(u && !snap.uris.has(u) && !H.normCode(monacoViewText(this.monacoOf(a))));
     },
-    async writeMonaco(monacoEl, code) {
-      const target = monacoEl.querySelector('.native-edit-context') || monacoEl.querySelector('textarea.inputarea') ||
-        monacoEl.querySelector('textarea:not([readonly])');
-      if (!target) throw new Error(WRITE_FAILED + ':找不到 Monaco 编辑器的输入区');
-      const ok = () => H.codeMatches(monacoViewText(monacoEl), code);
-      const selectAll = () => {
-        if (!H.normCode(monacoViewText(monacoEl))) return;
-        const mac = /Mac/.test(navigator.platform);
-        key(target, 'a', { ctrlKey: !mac, metaKey: mac });
-      };
-      const methods = [
-        ['paste', () => {
-          // 粘贴不会触发自动补括号/自动缩进，是最准确的
-          const dt = new DataTransfer();
-          dt.setData('text/plain', code);
-          target.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true, composed: true }));
-        }],
-        ['editcontext', () => {
-          // VS Code / 新版 Monaco 用 EditContext 接收输入：发一次 textupdate 事件。
-          // 让替换范围比当前选区多 1 个字符，Monaco 会走“输入法组合输入”分支，按原文插入，
-          // 不会自动缩进/补括号（普通 type 分支会给多行文本加缩进）。新单元格是空的，多出的 1 个字符什么也删不掉。
-          const ec = target.editContext;
-          if (!ec || typeof TextUpdateEvent !== 'function') return;
-          const from = ec.selectionStart, to = ec.selectionEnd + 1;
-          ec.dispatchEvent(new TextUpdateEvent('textupdate', { text: code, updateRangeStart: from, updateRangeEnd: to,
-            selectionStart: from + code.length, selectionEnd: from + code.length }));
-        }],
-        ['execCommand', () => { document.execCommand('insertText', false, code); }],
-        ['beforeinput', () => {
-          const o = { inputType: 'insertText', data: code, bubbles: true, cancelable: true, composed: true };
-          if (target.dispatchEvent(new InputEvent('beforeinput', o))) target.dispatchEvent(new InputEvent('input', o));
-        }]
-      ];
-      for (const [name, fn] of methods) {
-        target.focus();
-        await sleep(30);
-        selectAll();
-        try { await fn(); } catch { /* 试下一个 */ }
-        if (await waitFor(ok, 800, 60)) return 'monaco-' + name;
+    // 有些工具栏（单元格下方的 + Code）只在鼠标悬停时才渲染/显示：先模拟鼠标移上去
+    hover(el) {
+      if (!el || !el.getBoundingClientRect) return;
+      const r = el.getBoundingClientRect();
+      const o = { cancelable: true, composed: true, clientX: r.left + r.width / 2, clientY: r.top + Math.max(1, r.height - 4), view: window };
+      for (const t of ['pointerover', 'pointerenter', 'mouseover', 'mouseenter', 'pointermove', 'mousemove']) {
+        const E = t.startsWith('pointer') && typeof PointerEvent === 'function' ? PointerEvent : MouseEvent;
+        try { el.dispatchEvent(new E(t, { ...o, bubbles: !/enter/.test(t) })); } catch { /* ignore */ }
       }
-      const left = H.normCode(monacoViewText(monacoEl));
-      throw new Error(WRITE_FAILED + ':没能把代码写进 Monaco 编辑器' + (left ? '（单元格里可能留下了不完整的内容，请先清空）' : ''));
+    },
+    // VS Code 的动作栏有的听 click，有的听 mousedown / pointerdown：发完整的一套
+    pressFull(el) {
+      const r = el.getBoundingClientRect();
+      const o = { bubbles: true, cancelable: true, composed: true, button: 0, buttons: 1, clientX: r.left + r.width / 2, clientY: r.top + r.height / 2, view: window };
+      const P = typeof PointerEvent === 'function' ? PointerEvent : MouseEvent;
+      el.dispatchEvent(new P('pointerdown', { ...o, pointerId: 1, isPrimary: true }));
+      el.dispatchEvent(new MouseEvent('mousedown', o));
+      el.dispatchEvent(new P('pointerup', { ...o, buttons: 0, pointerId: 1, isPrimary: true }));
+      el.dispatchEvent(new MouseEvent('mouseup', { ...o, buttons: 0 }));
+      el.dispatchEvent(new MouseEvent('click', { ...o, buttons: 0 }));
+    },
+    labelsOf(el) {
+      return [el.getAttribute('aria-label') || '', el.getAttribute('title') || '', (el.textContent || '').replace(/\s+/g, ' ').trim()];
+    },
+    // 找“添加代码单元格”按钮：aria-label / title / 文字匹配（可能带快捷键后缀、可能是中文界面），按位置排优先级
+    addCodeButtons(row) {
+      const ed = this.editor();
+      const RE = /add code cell|insert code cell|new code cell|code cell below|^\+?\s*code$|添加代码单元格|插入代码单元格|代码单元格|^\+?\s*代码$/i;
+      const BAD = /markdown|正文|文本|delete|删除|execute|运行|split|拆分|run all|clear/i;
+      const scopes = [
+        ['cell-toolbar', row && row.querySelector('.cell-bottom-toolbar-container')],
+        ['cell-row', row],
+        ['notebook-toolbar', ed && ed.querySelector('.notebook-toolbar-container')],
+        ['top-toolbar', ed && ed.querySelector('.cell-list-top-cell-toolbar-container')],
+        ['empty-notebook', ed && ed.querySelector('.notebook-empty-placeholder, .emptyNotebook, .notebook-empty')],
+        ['notebook-editor', ed],
+        ['action-bars', document.body]
+      ];
+      const seen = new Set();
+      const out = [];
+      for (const [where, sc] of scopes) {
+        if (!sc) continue;
+        for (const el of sc.querySelectorAll('a, button, [role="button"], .action-label, .monaco-button')) {
+          const [aria, title, text] = this.labelsOf(el);
+          const hit = RE.test(aria) || RE.test(title.replace(/\s*\(.*\)\s*$/, '')) || (text.length <= 24 && RE.test(text));
+          if (!hit || [aria, title, text].some((x) => BAD.test(x))) continue;
+          // 别的单元格下面的 + Code 会插到别处：只用当前行的
+          const otherRow = el.closest('.monaco-list-row');
+          if (otherRow && row && otherRow !== row) continue;
+          if (where === 'action-bars' && !el.closest('.monaco-action-bar, .monaco-toolbar, .notebook-editor')) continue;
+          const item = el.closest('.action-item');
+          const clickable = (item && item.querySelector('a.action-label, .action-label')) || el.closest('a, button, [role="button"]') || el;
+          if (seen.has(clickable)) continue;
+          seen.add(clickable);
+          out.push([where, clickable]);
+        }
+      }
+      return out;
+    },
+    describe(el) {
+      const [aria, title, text] = this.labelsOf(el);
+      return { tag: el.tagName.toLowerCase(), cls: String(el.className || '').slice(0, 80), aria: aria.slice(0, 60), title: title.slice(0, 60), text: text.slice(0, 30), visible: visible(el) };
     },
     async insertCellBelow(code) {
+      steps = [];
       const ed = this.editor();
       if (!ed) throw new Error('未找到 Notebook 编辑器');
-      const before = this.total();
       const old = this.activeRow();
       const oldIndex = old ? +old.dataset.index : -1;
-      // 优先：当前单元格下方的“+ Code”（插在它后面）；其次 Notebook 顶部工具栏的“+ Code”（VS Code 会插在当前单元格后面）
-      const cands = [];
-      if (old) cands.push(['cell-toolbar', this.button(old.querySelector('.cell-bottom-toolbar-container'), 'Add Code Cell')]);
-      cands.push(['notebook-toolbar', this.button(ed.querySelector('.notebook-toolbar-container'), 'Add Code Cell')]);
-      if (!old) cands.push(['top-toolbar', this.button(ed.querySelector('.cell-list-top-cell-toolbar-container'), 'Add Code Cell')]);
-      let via = '';
-      for (const [name, btn] of cands) {
-        if (!btn) continue;
-        press(btn); via = name;
-        if (await waitFor(() => this.total() > before, 2500)) break;
-        via = '';
+      const snap = this.snapshot();
+      trace('vscode-insert', { total: snap.total, rows: this.rows().length, activeIndex: oldIndex });
+      if (old) {
+        this.hover(old);
+        this.hover(old.querySelector('.cell-bottom-toolbar-container'));
+        await sleep(120);
       }
-      if (!via) throw new Error('插入新单元格失败：没有找到可用的“+ Code / Add Code Cell”按钮');
-      const row = await waitFor(() => {
-        const a = this.activeRow();
-        if (a && +a.dataset.index !== oldIndex && this.monacoOf(a)) return a;
-        return this.rows().find((r) => +r.dataset.index === oldIndex + 1 && this.monacoOf(r)) || null;
-      }, 3000);
-      if (!row) throw new Error('找不到新插入的单元格');
-      if (oldIndex >= 0 && +row.dataset.index !== oldIndex + 1) via += '(末尾)';
+      let via = '';
+      const cands = this.addCodeButtons(old);
+      trace('add-code-candidates', { n: cands.length, list: cands.slice(0, 6).map(([w, b]) => ({ where: w, ...this.describe(b) })) });
+      for (const [where, btn] of cands) {
+        if (!btn.isConnected) continue;
+        this.hover(btn);
+        this.pressFull(btn);
+        // 动作可能是异步的：多等一会儿再判断，避免重复插入
+        if (await waitFor(() => this.grew(snap), 3000)) { via = where; break; }
+        trace('no-new-cell-after-click', { where });
+      }
+      if (!via) {
+        // 快捷键兜底：命令模式下按 B（VS Code 可能不理会合成的键盘事件）
+        const list = this.list();
+        if (list) {
+          const act = document.activeElement;
+          const edInput = act && act.closest && act.closest('.monaco-editor');
+          if (edInput) key(act, 'Escape');
+          list.focus();
+          await sleep(80);
+          key(list.contains(document.activeElement) ? document.activeElement : list, 'b');
+          if (await waitFor(() => this.grew(snap), 2000)) via = 'keyboard(B)';
+          else trace('keyboard-b-no-effect');
+        }
+      }
+      let row = null;
+      if (via) {
+        row = await waitFor(() => {
+          const a = this.activeRow();
+          if (a && (+a.dataset.index !== oldIndex || (this.uriOf(a) && !snap.uris.has(this.uriOf(a)))) && this.monacoOf(a)) return a;
+          return this.rows().find((r) => +r.dataset.index === oldIndex + 1 && this.monacoOf(r)) || null;
+        }, 3000);
+        if (!row) trace('new-row-not-found');
+        else if (oldIndex >= 0 && +row.dataset.index !== oldIndex + 1) via += '(末尾)';
+      }
+      if (!row) {
+        // 新建单元格失败：当前选中的单元格是空的，就直接写进去
+        const a = old || this.activeRow();
+        const am = a && this.monacoOf(a);
+        if (!via && am && !H.normCode(monacoViewText(am))) { row = a; via = 'current-empty-cell'; }
+        else {
+          throw new Error('插入新单元格失败：没有找到能用的“+ Code / Add Code Cell”按钮，按 B 也没有反应。' +
+            '可以先在 Notebook 里点一下一个空单元格再点“插入”，代码会写进这个空单元格；或者点“+ → 复制诊断信息”发给开发者');
+        }
+      }
       row.scrollIntoView({ block: 'center' });
       const m = await waitFor(() => { const x = this.monacoOf(row); return x && x.querySelector('.native-edit-context, textarea') ? x : null; });
       if (!m) throw new Error(WRITE_FAILED + ':新单元格的编辑器没有加载');
-      const how = await this.writeMonaco(m, code);
+      const how = await writeMonaco(m, code);
       return { inserted: true, via: via + '+' + how, notice: this.kernelHint() };
     },
     async runCell() {
       const row = this.activeRow();
       if (!row) throw new Error('没有可运行的单元格');
-      const btn = row.querySelector('.run-button-container a.codicon-notebook-execute, .run-button-container a[aria-label^="Execute Cell"]');
-      if (!btn) throw new Error('找不到这个单元格的运行按钮（Execute Cell）');
-      press(btn);
+      this.hover(row);
+      await sleep(60);
+      const RUN = /^(execute cell|run cell|执行单元格|运行单元格)/i;
+      const btn = row.querySelector('.run-button-container a.codicon-notebook-execute, .run-button-container a[aria-label^="Execute Cell"]') ||
+        Array.from(row.querySelectorAll('a, button, [role="button"]')).find((b) => this.labelsOf(b).slice(0, 2).some((x) => RUN.test(x)));
+      if (btn) {
+        this.pressFull(btn);
+        await sleep(1500);
+        return { ran: true, via: 'execute-button', notice: this.kernelHint() };
+      }
+      // 兜底：编辑器里按 Ctrl+Enter（VS Code 的“运行单元格”快捷键）
+      const m = this.monacoOf(row);
+      const input = m && m.querySelector('.native-edit-context, textarea');
+      if (!input) throw new Error('找不到这个单元格的运行按钮（Execute Cell）');
+      input.focus();
+      const mac = /Mac/.test(navigator.platform);
+      key(input, 'Enter', { ctrlKey: !mac, metaKey: mac });
       await sleep(1500);
-      return { ran: true, via: 'execute-button', notice: this.kernelHint() };
+      return { ran: true, via: 'keyboard(Ctrl+Enter)', notice: this.kernelHint() };
     }
   };
 
@@ -559,8 +818,52 @@
     return null;
   }
 
+  // 诊断信息：只收集结构（选择器数量、全局变量、版本、按钮标签），不收集代码、输出和 Key
+  async function diagnose() {
+    const sels = ['.jp-LabShell', '.jp-Notebook', '.jp-Cell', '.jp-mod-active', '[data-command="notebook:insert-cell-below"]',
+      '[data-command="notebook:run-cell-and-select-next"]', '.jp-Notebook-footer', '.monaco-editor', 'textarea.inputarea',
+      '.native-edit-context', 'textarea.ime-text-area', '.view-lines', '.cm-editor', '.CodeMirror', '.monaco-workbench',
+      '.notebook-editor', '.cell-list-container .monaco-list', '.code-cell-row', '.monaco-list-row.focused', '.notebook-toolbar-container',
+      '.cell-bottom-toolbar-container', '.cell-list-top-cell-toolbar-container', '.run-button-container', 'a.codicon-notebook-kernel-select', 'iframe'];
+    const counts = {};
+    for (const q of sels) { try { counts[q] = document.querySelectorAll(q).length; } catch { counts[q] = -1; } }
+    const req = window.require;
+    const globals = {
+      jupyterapp: !!window.jupyterapp, jupyterlab: !!window.jupyterlab, Jupyter: !!window.Jupyter, monaco: !!window.monaco,
+      require: typeof req, requireDefined: !!(req && req.defined), amdMonaco: !!(req && req.defined && (() => { try { return req.defined('vs/editor/editor.main'); } catch { return false; } })()),
+      webpackChunks: Object.keys(window).filter((k) => /^webpackChunk/.test(k)),
+      _JUPYTERLAB: window._JUPYTERLAB ? Object.keys(window._JUPYTERLAB).slice(0, 20) : null,
+      EditContext: typeof window.EditContext
+    };
+    const versions = {};
+    try {
+      const cfg = document.getElementById('jupyter-config-data');
+      if (cfg) { const c = JSON.parse(cfg.textContent); versions.jupyterlab = c.appVersion || null; versions.appName = c.appName || null; versions.locale = c.locale || null; }
+    } catch { /* ignore */ }
+    const a = pickAdapter();
+    let lab = null;
+    if (a === jupyterLab && !jupyterLab.panelWidget()) {
+      const f = await labFinder.widgetFor(jupyterLab.notebookNode());
+      lab = { modelFound: !!f, ...labFinder.info };
+    }
+    const out = { url: location.origin + location.pathname, top: window.top === window, title: document.title.slice(0, 60), lang: document.documentElement.lang || '',
+      platform: platformName(), adapter: a ? a.kind : null, counts, globals, versions, lab, lastError, lastSteps: steps.slice(-20) };
+    if (a === vscodeNotebook || document.querySelector('.notebook-editor')) {
+      const scope = Array.from(document.querySelectorAll('.notebook-editor .monaco-action-bar a, .notebook-editor .monaco-action-bar [role="button"], .notebook-toolbar-container a, .cell-bottom-toolbar-container a, .cell-list-top-cell-toolbar-container a, .notebook-editor button'));
+      out.actions = Array.from(new Set(scope)).slice(0, 60).map((el) => vscodeNotebook.describe(el));
+      const row = vscodeNotebook.activeRow();
+      out.vscode = { total: vscodeNotebook.total(), rows: vscodeNotebook.rows().length, activeIndex: row ? row.dataset.index : null,
+        activeHasUri: !!(row && vscodeNotebook.uriOf(row)), kernel: (document.querySelector('a.codicon-notebook-kernel-select') || { getAttribute: () => null }).getAttribute('aria-label') };
+    }
+    if (a === jupyterLab) {
+      out.commands = Array.from(new Set(Array.from(document.querySelectorAll('[data-command]')).map((e) => e.getAttribute('data-command')))).slice(0, 40);
+    }
+    return out;
+  }
+
   const handlers = {
-    detect() {
+    diagnose,
+    async detect() {
       const a = pickAdapter();
       if (!a) {
         const r = { detected: false, platform: platformName() };
@@ -578,13 +881,14 @@
       const nb = a === jupyterLab ? jupyterLab.notebookNode() : null;
       const cellCount = nb ? nb.querySelectorAll('.jp-Cell').length : (a === kaggle ? kaggle.editors().length : (a === vscodeNotebook ? vscodeNotebook.total() : 0));
       const r = { detected: true, platform: platformName(), kind: a.kind, cellCount, viaApp: a === jupyterLab && !!jupyterLab.panelWidget() };
+      if (a === jupyterLab && !r.viaApp) r.viaModel = !!(await labFinder.widgetFor(nb));
       if (a === vscodeNotebook) r.notice = vscodeNotebook.kernelHint();
       return r;
     },
-    getContext() {
+    async getContext() {
       const a = pickAdapter();
       if (!a) throw new Error('当前页面没有检测到 Notebook');
-      const r = { platform: platformName(), kind: a.kind, cellCode: a.getActiveCellCode(), errorOutput: a.getLastErrorOutput() };
+      const r = { platform: platformName(), kind: a.kind, cellCode: await a.getActiveCellCode(), errorOutput: a.getLastErrorOutput() };
       if (a === vscodeNotebook) {
         r.outputUnreadable = !r.errorOutput && vscodeNotebook.outputUnreadable();
         r.notice = vscodeNotebook.kernelHint();
@@ -611,6 +915,10 @@
       resp = { id: req.id, ok: true, result: await fn(req.args || {}) };
     } catch (e) {
       resp = { id: req.id, ok: false, error: String(e && e.message || e) };
+      if (req.action !== 'diagnose') {
+        lastError = { action: req.action, message: String(e && e.message || e).slice(0, 300),
+          stack: String(e && e.stack || '').split('\n').slice(0, 6).join('\n').slice(0, 800), steps: steps.slice(-20), at: new Date().toISOString() };
+      }
     }
     document.dispatchEvent(new CustomEvent('nbac-response', { detail: JSON.stringify(resp) }));
   });

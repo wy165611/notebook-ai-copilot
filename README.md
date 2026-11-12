@@ -72,22 +72,28 @@ Chrome 偶尔会提示“停用开发者模式扩展”，点关闭即可。
 
 **JupyterLab 适配器**（按顺序兜底）：
 1. 页面暴露了 `window.jupyterapp` 时，直接用 JupyterLab 命令：`notebook:insert-cell-below`、`notebook:run-cell`，并写 `activeCell.model.sharedModel.setSource()`；
-2. 否则点 Notebook 工具栏里 `[data-command="notebook:insert-cell-below"]` / `[data-command="notebook:run-cell-and-select-next"]` 按钮。工具栏被平台用 CSS 藏起来时，隐藏的按钮照样能用。代码用 CodeMirror 6 的 `EditorView`（`.cm-content.cmView.view`）写入，CodeMirror 5 用 `.CodeMirror.CodeMirror.setValue()`；
-3. 页面上根本没有这些按钮时：页面有焦点就模拟 Esc → B；没有焦点（比如你刚点了侧边栏，JupyterLab 的 B 快捷键需要焦点）就点 Notebook 底部的“添加单元格”区域，这时新单元格会加在**末尾**。运行用 Shift+Enter（不需要焦点）。
+2. 没暴露时（AI Studio、Kaggle、ModelScope DSW 等都不暴露），**直接操作 JupyterLab 的单元格模型**，不往编辑器里“打字”：
+   - 一个很小的 `document_start` 脚本（`early.js`）记下 Lumino widget 以对象形式注册的事件监听器，从而由 `.jp-Notebook` 节点找到 Notebook widget；
+   - 或者从页面的 webpack 运行时（`webpackChunk*` → module federation 共享作用域 / 模块缓存）取出页面正在用的 `@jupyterlab/notebook`，用 `NotebookActions.insertBelow` / `run`；
+   - 然后 `activeCell.model.sharedModel.setSource(code)`（JupyterLab 3 用 `model.value.text`），写完核对模型里的内容和原文一致。这条路对 CodeMirror、Monaco 等任何编辑器都一样；
+3. 找不到模型时才走 DOM：点 Notebook 工具栏里 `[data-command="notebook:insert-cell-below"]` / `[data-command="notebook:run-cell-and-select-next"]` 按钮。工具栏被平台用 CSS 藏起来时，隐藏的按钮照样能用。代码用 CodeMirror 6 的 `EditorView`（`.cm-content.cmView.view`）写入，CodeMirror 5 用 `.CodeMirror.CodeMirror.setValue()`，Monaco 先用 Monaco API（`window.monaco` 或 AMD loader 里的 `vs/editor/editor.main`），再依次试粘贴事件、EditContext `textupdate`、`execCommand`、`beforeinput`，每次都核对；
+4. 页面上根本没有这些按钮时：页面有焦点就模拟 Esc → B；没有焦点（比如你刚点了侧边栏，JupyterLab 的 B 快捷键需要焦点）就点 Notebook 底部的“添加单元格”区域，这时新单元格会加在**末尾**。运行用 Shift+Enter（不需要焦点）。
+5. 全都写不进去时不会运行，代码自动复制到剪贴板，提示你手动粘贴。
 报错读取：`.jp-OutputArea-output[data-mime-type="application/vnd.jupyter.stderr"]`。
 
 **飞桨 AI Studio**（2026-11 对照真实已登录 AI Studio 的 DOM 结构核对过）：
 - **请在 BML Codelab 里用**：打开项目后点「**专业开发**」进入 BML Codelab（地址类似 `aistudio.baidu.com/bj-cpu-01/user/…/…/home#codelab`）。
 - 外层的项目编辑器（`/project/edit/…`）是 AI Studio 自己的页面，DOM 里没有足够稳定的单元格结构，**暂不支持**；在那里打开侧边栏会提示“请点击「专业开发」打开 BML Codelab 后使用”。
 - BML Codelab 的宿主页同源嵌了两个 iframe：`#vscode-frame`（VS Code，里面还有 webview 子 iframe）和 `#jupyterlab-frame`（JupyterLab，单元格在这里）。宿主页和 VS Code 那些 frame 都会回报“不是 Notebook”，侧边栏只连 `#jupyterlab-frame`。
-- 那里的 JupyterLab 是中文界面（如按钮标题“下方插入单元格 (B)”），单元格编辑器是 **Monaco**，并且不暴露全局 `window.monaco`。扩展只靠 `data-command`、class 这些不随语言变化的选择器；Monaco 的内容从渲染出来的行（`.view-lines .view-line`）读取，写入时对 Monaco 的隐藏输入框发一个“粘贴”事件（粘贴不会自动补括号），运行用工具栏按钮或 Shift+Enter。
+- 那里的 JupyterLab 是中文界面（如按钮标题“下方插入单元格 (B)”），单元格编辑器是 **Monaco**（旧版，隐藏的 `textarea.inputarea`），不暴露全局 `window.monaco`。扩展只靠 `data-command`、class 这些不随语言变化的选择器。
+- **0.1.1 起优先通过 JupyterLab 单元格模型写代码**（见上面第 2 条），不再依赖往 Monaco 里粘贴（0.1.0 在真实页面上报“写入 Monaco 编辑器失败”）。找不到模型时才退回到 Monaco API → 粘贴等方式，最后复制到剪贴板。读代码也优先读模型（完整内容），否则读渲染出来的行。
 - 测试里在本机仿造了这个结构：同源宿主页 + `#vscode-frame` 诱饵（含嵌套 iframe）+ `#jupyterlab-frame` 里经反向代理的真实中文 JupyterLab 4；另有一个照抄真实 DOM、用真实 Monaco（去掉全局）的单元格夹具（运行是假的）。检测、读代码和报错、插入、确认后运行、修复报错、外层编辑器提示都通过了。**还没有在真正的 AI Studio 上端到端跑过。**
 
 **ModelScope**（2026-11 对照真实 ModelScope 免费 CPU 实例的 DOM 结构核对过）：
 - 在「我的 Notebook」里启动实例后点「查看 / View」，打开的是 `modelscope.cn/code/workspace?instanceId=…`。它**不是 JupyterLab**，而是 VS Code 网页版的 Code Editor：外层页面同源嵌了 `iframe[title="notebook-ide"]`（`/notebook/main.html`），`.ipynb` 用 VS Code 自带的 Notebook 编辑器打开。侧边栏只连这个 frame；外层页面、`extensionHostIframe.html` 都回报“不是 Notebook”，`g.alicdn.com` 上的跨域 webview 不注入。
 - 还没打开 `.ipynb` 时会提示新建一个（File → New File… → Jupyter Notebook）；在「我的 Notebook」列表页会提示先启动实例再点「查看」。
 - 读代码：当前单元格是 `.monaco-list-row.code-cell-row.focused`，代码从 Monaco 渲染出来的行（`.view-lines`）读取。
-- 插入：点当前单元格下方的「+ Code」（`a[aria-label="Add Code Cell"]`），找不到再点 Notebook 工具栏的「+ Code」。VS Code 这里没有 `data-command`，只能靠 `aria-label`，界面是英文；如果平台改成中文界面，按钮名会变，插入会失败。
+- 插入（0.1.1 起放宽了查找，0.1.0 在真实页面上报“没有找到可用的 + Code 按钮”）：先模拟鼠标移到当前单元格上（有的按钮只在悬停时出现），再按 `aria-label` / `title` / 文字匹配 “Add Code Cell / + Code / Code / 代码 / 添加代码单元格”（允许带快捷键后缀），依次试当前单元格下方的按钮、Notebook 工具栏、顶部插入条、整个编辑器里的动作栏；每个按钮发完整的 pointerdown → mousedown → pointerup → mouseup → click，然后等单元格总数（`aria-setsize`）变化，避免重复插入。都不行就聚焦单元格列表按 Esc → B。还不行、但当前选中的单元格是空的，就直接写进这个空单元格。
 - 写代码：单元格编辑器是 Monaco，用 EditContext（`.native-edit-context`），没有全局 `monaco`。依次试：① 对编辑器发一个“粘贴”事件；② 发一次 EditContext `textupdate`；③ `document.execCommand('insertText')`；④ `beforeinput`。每试一次都核对渲染出来的代码和原文完全一致（缩进、括号都不能差）。都不行时**不会运行**，代码会复制到剪贴板，提示你在新单元格里按 Ctrl+V。
 - 运行：确认后点这个单元格的运行按钮（`.run-button-container a.codicon-notebook-execute`）。
 - 报错：VS Code 把输出画在单独的跨域 webview 里，扩展通常**读不到输出文字**。这时“修复当前报错”会提示你把报错复制到输入框里，再点“修复当前报错”，贴进来的内容会当作报错发给模型。
@@ -102,6 +108,16 @@ Chrome 偶尔会提示“停用开发者模式扩展”，点关闭即可。
 - 旧的“Kaggle DOM 适配器”（找 `+ Code` 按钮、`.cm-editor` 等）保留为兜底，只在页面里没有 JupyterLab 但有编辑器时才用，目前没有测试覆盖。
 
 如果插入失败，侧边栏会显示原因，代码可以点“复制”后手动粘贴。
+
+## 出问题时：复制诊断信息
+
+在真实网站上插入/写入失败时：
+
+1. 打开出问题的 Notebook 页面，打开侧边栏；
+2. 点输入框左边的 **+ → 复制诊断信息**；
+3. 侧边栏提示“诊断信息已复制到剪贴板”后，直接粘贴发给开发者（如果复制失败，信息会显示在侧边栏的框里，全选复制即可）。
+
+诊断信息是一段 JSON：每个 frame 的地址（不含 `?` 后面的参数）、识别出的适配器、关键选择器的数量（`.jp-Notebook`、`.monaco-editor`、`textarea.inputarea`、`.native-edit-context`、`.notebook-editor`、`.code-cell-row` 等）、有哪些全局变量（`jupyterapp`、`monaco`、`require`、`webpackChunk*`）、JupyterLab 版本、是否找到了单元格模型、ModelScope 的候选按钮列表（标签、class、aria-label、title、文字，最多 60 个），以及最近一次插入/写入失败的错误和步骤。**不包含代码、输出和 API Key。**
 
 ## 已知限制
 

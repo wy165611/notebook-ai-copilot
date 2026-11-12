@@ -3,7 +3,11 @@
      JupyterLab 3 风格的 p-Widget/lm-Widget 类名、单元格编辑器是 Monaco（.jp-InputArea-editor > .monaco-editor），
      当前单元格上方有中文标题的单元格工具栏（data-command="notebook:insert-cell-below" title="下方插入单元格 (B)"）。
      使用真实的 monaco-editor，但不暴露全局 window.monaco。
-     “运行”是假的：Shift+Enter 只识别 1/0 和 NBAC_* 测试输出，不是真内核。 -->
+     “运行”是假的：Shift+Enter 只识别 1/0 和 NBAC_* 测试输出，不是真内核。
+     真实页面的 Monaco 用隐藏的 textarea.inputarea（旧版 Monaco，不是 EditContext），这里也关掉 EditContext。
+     默认：window.monaco 被删掉，但 AMD loader（window.require）还在 → 扩展可以用 require('vs/editor/editor.main') 拿到 Monaco API；
+     ?noamd=1：连 window.require 也藏起来（只能靠粘贴写入）；
+     ?notyping=1：再拦掉 paste / beforeinput / input / keydown（模拟真实页面里“写入 Monaco 编辑器失败”），只能走剪贴板兜底。 -->
 <html lang="zh"><head><meta charset="utf-8"><title>main.ipynb - BML Codelab</title>
 <style>body{margin:0;font:13px sans-serif}.jp-NotebookPanel{padding:10px 20px}.jp-Cell{border:1px solid #ddd;margin:8px 0;padding:4px;position:relative}
 .jp-Cell.jp-mod-active{border-color:#2196f3}.jp-InputArea{display:flex}.jp-InputArea-prompt{width:50px;color:#888}.jp-InputArea-editor{flex:1;height:90px;border:1px solid #eee}
@@ -75,6 +79,13 @@ require.config({ paths: { vs: '/vs' } });
 require(['vs/editor/editor.main'], function () {
   window.__fixtureMonaco = window.monaco;
   try { delete window.monaco; } catch (e) { window.monaco = undefined; }
+  const Q = new URLSearchParams(location.search);
+  if (Q.get('noamd') || Q.get('notyping')) { window.__fixtureRequire = window.require; window.require = undefined; window.define = undefined; }
+  if (Q.get('notyping')) {
+    for (const t of ['paste', 'beforeinput', 'input', 'textInput', 'keydown']) {
+      document.addEventListener(t, (e) => { if (e.target.closest && e.target.closest('.monaco-editor')) { e.stopImmediatePropagation(); e.preventDefault(); } }, true);
+    }
+  }
   const c1 = makeCell('x = 41\nprint(x + 1)'); run(c1);
   const c2 = makeCell('y = 1/0'); run(c2); activate(c2);
   window.__fixtureReady = true;

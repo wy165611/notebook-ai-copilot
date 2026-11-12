@@ -44,6 +44,14 @@
       sendResponse({ ack: true });
       return false;
     }
+    if (msg.action === 'diagnose') {
+      callPage('diagnose', {}, 4000).then((r) => {
+        const res = r && r.ok ? r.result : { url: location.origin + location.pathname, top: window.top === window, pageScript: false, error: r && r.error };
+        chrome.runtime.sendMessage({ type: 'nbac-diag', reqId: msg.reqId, frame: res }).catch(() => {});
+      });
+      sendResponse({ ack: true });
+      return false;
+    }
     callPage(msg.action, msg.args, msg.timeoutMs || 15000).then(sendResponse);
     return true;
   });

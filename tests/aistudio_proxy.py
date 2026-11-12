@@ -51,7 +51,8 @@ async def handle(request):
     if path == BASE + 'home':
         return web.Response(text=fill(HOST_PAGE, {'base': BASE, 'lab': BASE + 'lab/tree/test.ipynb'}), content_type='text/html')
     if path == MON + 'home':
-        return web.Response(text=fill(HOST_PAGE, {'base': MON, 'lab': MON + 'lab'}), content_type='text/html')
+        qs = ('?' + request.query_string) if request.query_string else ''
+        return web.Response(text=fill(HOST_PAGE, {'base': MON, 'lab': MON + 'lab' + qs}), content_type='text/html')
     if path == MON + 'lab':
         return web.FileResponse(HERE / 'aistudio_monaco_fixture.html')
     if path in (BASE + 'vscode/', MON + 'vscode/'):

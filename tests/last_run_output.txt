@@ -33,22 +33,23 @@ PASS [gemini] “低” → generationConfig.thinkingConfig.thinkingLevel=low，
 PASS [memory] 重新打开面板后记住服务商/模型/思考强度  [{'active': 'gemini', 'thinking': 'low'}]
 
 === JupyterLab (dom) on :8899 ===
-PASS [dom] 检测到 Notebook  [已连接：Jupyter（jupyterlab，主页面）]
+PASS [dom] 检测到 Notebook  [已连接：Jupyter（jupyterlab，JupyterLab 模型，主页面）]
 PASS [dom] 百炼默认模型生成代码并显示在对话里  [阿里云百炼 · deepseek-v4.1-flash · 已附带上下文]
 PASS [dom] 请求发到百炼兼容接口，模型 deepseek-v4.1-flash
 PASS [dom] 读取当前单元格代码并发给模型
 PASS [dom] 读取最近的报错输出并发给模型
 PASS [dom] 思考强度“默认”时不发送思考参数
-PASS [dom] 插入到新单元格  [已插入到新单元格（toolbar-button+cm6），检查无误后在 Notebook 里运行]
+PASS [dom] 插入到新单元格  [已插入到新单元格（jupyterlab-model(listener-hook)），检查无误后在 Notebook 里运行]
+PASS [dom] 没暴露 app 时通过监听器钩子找到 Notebook widget，直接写单元格模型  [已插入到新单元格（jupyterlab-model(listener-hook)），检查无误后在 Notebook 里运行]
 PASS [dom] 新单元格内容就是生成的代码  [import platform
 print("NBAC_OK", 6 * 7, platform.python_vers]
 PASS [dom] 只插入时没有自动运行
 PASS [dom] 点“插入并运行”后先出现确认框
 PASS [dom] 确认前什么都没插入/运行
-PASS [dom] 确认后插入并运行，看到输出 “NBAC_OK 42 True”  [已插入新单元格并开始运行（toolbar-button+cm6）]
+PASS [dom] 确认后插入并运行，看到输出 “NBAC_OK 42 True”  [已插入新单元格并开始运行（jupyterlab-model(listener-hook)）]
 PASS [dom] “修复报错”把代码和报错发给模型
 PASS [dom] “修复报错”返回修好的单元格
-PASS [dom] 修复后的单元格运行成功（输出 NBAC_FIXED 1.0）  [已插入新单元格并开始运行（toolbar-button+cm6）]
+PASS [dom] 修复后的单元格运行成功（输出 NBAC_FIXED 1.0）  [已插入新单元格并开始运行（jupyterlab-model(listener-hook)）]
 PASS [dom] 工具栏被隐藏时仍能插入并运行（用隐藏的工具栏按钮）  [已插入新单元格并开始运行（toolbar-button+cm6）]
 PASS [dom] 没有任何按钮时用快捷键/底部添加区插入并用 Shift+Enter 运行  [已插入新单元格并开始运行（keyboard+cm6）]
 
@@ -73,16 +74,16 @@ PASS [app] 修复后的单元格运行成功（输出 NBAC_FIXED 1.0）  [已插
 === Kaggle（顶层页面 + 跨站 JupyterLab iframe） ===
 PASS [kaggle] iframe 来自另一个站点并加载了 JupyterLab  [http://kkb-production.jupyter-proxy.kagglenet.test:8901/lab/tree/test.ipynb?session=FAKE-SESSION&lsp=true]
 PASS [kaggle] iframe 里没有暴露 window.jupyterapp
-PASS [kaggle] 连上的是 iframe 里的 JupyterLab（不是顶层 kaggle 页面）  [已连接：Kaggle（jupyterlab，内嵌 frame）]
+PASS [kaggle] 连上的是 iframe 里的 JupyterLab（不是顶层 kaggle 页面）  [已连接：Kaggle（jupyterlab，JupyterLab 模型，内嵌 frame）]
 PASS [kaggle] 顶层 www.kaggle 页面回报“不是 Notebook”  [frame 0(top): 不是 Notebook  http://www.kaggle.test:8765/code/someone/yolo11m-rdd2022/edit | frame 11: jupyterlab 3 个单元格  http://kkb-production.jupyter-proxy.kagglenet.test:8901/lab/tree/test.ipynb]
 PASS [kaggle] 从 iframe 读取单元格代码和报错
 PASS [kaggle] 系统提示按海外平台（不加清华镜像）
-PASS [kaggle] 在 iframe 里插入新单元格并写入代码  [已插入到新单元格（toolbar-button+cm6），检查无误后在 Notebook 里运行]
+PASS [kaggle] 在 iframe 里插入新单元格并写入代码  [已插入到新单元格（jupyterlab-model(listener-hook)），检查无误后在 Notebook 里运行]
 PASS [kaggle] 只插入时没有运行
 PASS [kaggle] 运行前要确认
-PASS [kaggle] 确认后在 iframe 里插入并运行，输出 NBAC_OK 42 True  [已插入新单元格并开始运行（toolbar-button+cm6）]
+PASS [kaggle] 确认后在 iframe 里插入并运行，输出 NBAC_OK 42 True  [已插入新单元格并开始运行（jupyterlab-model(listener-hook)）]
 PASS [kaggle] 修复报错：把 iframe 里的报错发给模型
-PASS [kaggle] 修复后的单元格在 iframe 里运行成功（NBAC_FIXED 1.0）  [已插入新单元格并开始运行（toolbar-button+cm6）]
+PASS [kaggle] 修复后的单元格在 iframe 里运行成功（NBAC_FIXED 1.0）  [已插入新单元格并开始运行（jupyterlab-model(listener-hook)）]
 PASS [kaggle] 工具栏被隐藏时仍能插入并运行（用隐藏的工具栏按钮）  [已插入新单元格并开始运行（toolbar-button+cm6）]
 PASS [kaggle] 没有任何按钮时用快捷键/底部添加区插入并用 Shift+Enter 运行  [已插入新单元格并开始运行（notebook-footer(末尾)+cm6，找不到“在下方插入”，已加到 Notebook 末尾）]
 
@@ -91,19 +92,19 @@ PASS [aistudio] #jupyterlab-frame 与宿主页同源
 PASS [aistudio] 页面里有 VS Code 诱饵 frame 和嵌套 webview  [http://aistudio.baidu.test:8770/bj-cpu-01/user/123/456/home#codelab | http://aistudio.baidu.test:8770/bj-cpu-01/user/123/456/vscode/ | http://aistudio.baidu.test:8770/bj-cpu-01/user/123/456/lab/tree/test.ipynb | http://aistudio.baidu.test:8770/bj-cpu-01/user/123/456/vscode/webview.html | about:blank | about:blank]
 PASS [aistudio] iframe 里没有暴露 window.jupyterapp
 PASS [aistudio] JupyterLab 是中文界面（按钮标题为中文）  [下方插入单元格 (B)]
-PASS [aistudio] 连上 #jupyterlab-frame（平台识别为飞桨 AI Studio）  [已连接：飞桨 AI Studio（jupyterlab，内嵌 frame）]
-PASS [aistudio] 宿主页、VS Code frame 和 webview 都回报“不是 Notebook”  [frame 0(top): 不是 Notebook  http://aistudio.baidu.test:8770/bj-cpu-01/user/123/456/home#codelab | frame 15: jupyterlab 3 个单元格  http://aistudio.baidu.test:8770/bj-cpu-01/user/123/456/lab/tree/test.ipynb | frame 14: 不是 Notebook  http://aistudio.baidu.test:8770/bj-cpu-01/user/123/456/vscode/ | frame 16: 不是 Notebook  http://aistudio.baidu.test:8770/bj-cpu-01/user/123/456/vscode/webview.html]
+PASS [aistudio] 连上 #jupyterlab-frame（平台识别为飞桨 AI Studio）  [已连接：飞桨 AI Studio（jupyterlab，JupyterLab 模型，内嵌 frame）]
+PASS [aistudio] 宿主页、VS Code frame 和 webview 都回报“不是 Notebook”  [frame 16: 不是 Notebook  http://aistudio.baidu.test:8770/bj-cpu-01/user/123/456/vscode/webview.html | frame 0(top): 不是 Notebook  http://aistudio.baidu.test:8770/bj-cpu-01/user/123/456/home#codelab | frame 15: jupyterlab 3 个单元格  http://aistudio.baidu.test:8770/bj-cpu-01/user/123/456/lab/tree/test.ipynb | frame 14: 不是 Notebook  http://aistudio.baidu.test:8770/bj-cpu-01/user/123/456/vscode/]
 PASS [aistudio] 读取单元格代码和报错
 PASS [aistudio] 系统提示带清华镜像（国内平台）
-PASS [aistudio] 插入新单元格并写入代码  [已插入到新单元格（toolbar-button+cm6），检查无误后在 Notebook 里运行]
+PASS [aistudio] 打字/粘贴全被拦掉时，仍通过 JupyterLab 模型（webpack 共享作用域）插入并写入代码  [已插入到新单元格（jupyterlab-model(share-scope:default:4.6.6)），检查无误后在 Notebook 里运行]
 PASS [aistudio] 运行前要确认
-PASS [aistudio] 确认后插入并运行，输出 NBAC_OK 42 True  [已插入新单元格并开始运行（toolbar-button+cm6）]
-PASS [aistudio] 修复报错后运行成功（NBAC_FIXED 1.0）  [已插入新单元格并开始运行（toolbar-button+cm6）]
+PASS [aistudio] 确认后插入并运行，输出 NBAC_OK 42 True  [已插入新单元格并开始运行（jupyterlab-model(listener-hook)）]
+PASS [aistudio] 修复报错后运行成功（NBAC_FIXED 1.0）  [已插入新单元格并开始运行（jupyterlab-model(listener-hook)）]
 PASS [aistudio] 工具栏被隐藏时仍能插入并运行（用隐藏的工具栏按钮）  [已插入新单元格并开始运行（toolbar-button+cm6）]
 PASS [aistudio] 没有任何按钮时用快捷键/底部添加区插入并用 Shift+Enter 运行  [已插入新单元格并开始运行（keyboard+cm6）]
 
 === 飞桨 AI Studio Monaco 单元格（真实 DOM 结构夹具，运行为假） ===
-PASS [monaco] 夹具里没有全局 window.monaco
+PASS [monaco] 夹具里没有全局 window.monaco，编辑器用 textarea.inputarea（和真实页面一致）
 PASS [monaco] 检测到 Notebook  [已连接：飞桨 AI Studio（jupyterlab，内嵌 frame）]
 PASS [monaco] 从 Monaco 单元格读到代码和报错  [请修复下面这个单元格的报错，输出修好后的完整单元格。
 
@@ -115,17 +116,20 @@ y = 1/0
 最近的报错输出：
 ```
 -----------------------------------------------]
-PASS [monaco] 用中文标题的单元格工具栏按钮插入，并通过粘贴写入 Monaco（内容完全一致，没有多出括号）  [已插入新单元格并开始运行（toolbar-button+monaco-paste） | x = 1 / 1  # 除数改成非 0
+PASS [monaco] 用中文标题的单元格工具栏按钮插入，并通过 AMD loader 里的 Monaco API 写入（内容完全一致）  [已插入新单元格并开始运行（toolbar-button+monaco-api(amd-require)） | x = 1 / 1  # 除数改成非 0
 print("NBAC_FIXED", x)
 ]
 PASS [monaco] Shift+Enter 运行（夹具的假运行）
+PASS [monaco] 拿不到 Monaco API 时对 textarea.inputarea 粘贴写入（内容完全一致）  [已插入到新单元格（toolbar-button+monaco-paste），检查无误后在 Notebook 里运行]
+PASS [monaco] 所有写入方式都失败时：提示失败、代码复制到剪贴板、不运行  [插入失败：没能把代码写进 Monaco 编辑器。代码已复制到剪贴板，请点进 Notebook 的单元格按 Ctrl+V（Mac 上 ⌘V）粘贴（没有运行） | 自动写入单元格失败，代码已复制到剪贴板。如果一直这样，可以点“+ → 复制诊断信息”发给开发者]
+PASS [monaco] 诊断信息里记录了最近一次写入失败的步骤  [{"action": "insertCellBelow", "message": "NBAC_WRITE_FAILED:没能把代码写进 Monaco 编辑器", "stack": "Error: NBAC_WRITE_FAILED:没能把代码写进 Monaco 编辑器\n    at writeMonaco (chrome-extension://kjhoaafikpbmkehjapdhbocpbiicaiig/src/content/page.js:197:11)\n    at async Object.insertCellBelow (chrome-extension://kjhoaaf]
 
 === 飞桨 AI Studio 外层项目编辑器 ===
 PASS [outer] 外层编辑器提示去「专业开发」打开 BML Codelab  [这是 AI Studio 外层的项目编辑器，暂不支持。请点击「专业开发」打开 BML Codelab 后使用]
 
 === ModelScope Code Editor（VS Code 原生 Notebook，真实 DOM 结构夹具） ===
 PASS [ms] 连上 notebook-ide frame（平台 ModelScope，vscode-notebook）  [已连接：ModelScope（vscode-notebook，内嵌 frame）]
-PASS [ms] 外层页面和 extensionHost frame 回报“不是 Notebook”，跨域 webview 不注入  [frame 30: vscode-notebook 2 个单元格  http://modelscope.test:8771/notebook/main.html | frame 32: 不是 Notebook  http://modelscope.test:8771/notebook/extensionHostIframe.html | frame 0(top): 不是 Notebook  http://modelscope.test:8771/code/workspace]
+PASS [ms] 外层页面和 extensionHost frame 回报“不是 Notebook”，跨域 webview 不注入  [frame 44: vscode-notebook 2 个单元格  http://modelscope.test:8771/notebook/main.html | frame 0(top): 不是 Notebook  http://modelscope.test:8771/code/workspace | frame 46: 不是 Notebook  http://modelscope.test:8771/notebook/extensionHostIframe.html]
 PASS [ms] 识别到真实 Monaco 用的是 EditContext（.native-edit-context，没有 textarea.inputarea）
 PASS [ms] 内核是 /usr/bin/python3 时提示改选 /usr/local/bin/python  [当前内核是 /usr/bin/python3：在 ModelScope 免费 CPU 实例上它没有 ipykernel，运行会报错。请点 Notebook 右上角的内核名，改选 /usr/local/bin/python（Python 3.11），然后再运行。]
 PASS [ms] 读到当前单元格代码（Monaco 渲染行）  [需求：用 pandas 读一个 csv
@@ -165,11 +169,19 @@ y = 1/0
 ZeroDivisionError                         Traceback (most recent call last)
 Cell In[2],]
 PASS [ms] 粘贴无效时用 EditContext textupdate 写入（缩进不变、不多括号）  [已插入到新单元格（cell-toolbar+monaco-editcontext），检查无误后在 Notebook 里运行]
-PASS [ms] 写不进编辑器时提示并把代码复制到剪贴板，不运行  [插入失败：没能把代码写进 Monaco 编辑器。代码已复制到剪贴板，请点进新单元格按 Ctrl+V 粘贴（没有运行） | 自动写入单元格失败，代码已复制到剪贴板]
+PASS [ms] 写不进编辑器时提示并把代码复制到剪贴板，不运行  [插入失败：没能把代码写进 Monaco 编辑器。代码已复制到剪贴板，请点进 Notebook 的单元格按 Ctrl+V（Mac 上 ⌘V）粘贴（没有运行） | 自动写入单元格失败，代码已复制到剪贴板。如果一直这样，可以点“+ → 复制诊断信息”发给开发者]
+PASS [ms] 悬停才出现、只有 title、只响应 mousedown 的单元格 + Code：插在当前单元格下方并写入  [已插入到新单元格（cell-toolbar+monaco-paste），检查无误后在 Notebook 里运行]
+PASS [ms] 中文界面的工具栏“代码”按钮：插在当前单元格下方并写入  [已插入到新单元格（notebook-toolbar+monaco-paste），检查无误后在 Notebook 里运行]
+PASS [ms] 没有任何 + Code 按钮时按 B：插在当前单元格下方并写入  [已插入到新单元格（keyboard(B)+monaco-paste），检查无误后在 Notebook 里运行]
+PASS [ms] 插入新单元格失败时写进当前选中的空单元格并运行  [没法新建单元格，已写入当前选中的空单元格并开始运行（current-empty-cell+monaco-paste）]
+PASS [diag] 诊断信息包含所有 frame（外层页面、notebook-ide、extensionHost），标出适配器和关键选择器数量  [{"tool": "Notebook AI Copilot", "version": "0.1.1", "at": "2026-11-12T07:49:46.445Z", "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/158.0.0.0 Safari/537.36", "tabUrl": "http://modelscope.test:8771/code/workspace", "target": {"frameId": 81, "platform": "M]
+PASS [diag] ModelScope 列出候选动作按钮（tag/class/aria-label/title/文字）  [[{"tag": "a", "cls": "action-label codicon codicon-add", "aria": "Add Markdown Cell", "title": "", "text": "+", "visible": true}, {"tag": "a", "cls": "notebook-label", "aria": "", "title": "", "text": "Markdown", "visible": true}, {"tag": "a", "cls": "action-label codicon codicon-notebook-execute-all", "aria": "Run All", "title": "", "text": "▷", "visible": true}]]
+PASS [diag] 诊断信息不含代码、输出和 API Key
+PASS [diag] 点按钮后提示已复制到剪贴板（或显示在框里手动复制）  [诊断信息已复制到剪贴板（3 个 frame，6933 字），直接粘贴发给开发者即可。不含代码、输出和 API Key。]
 PASS [ms] Code Editor 里没打开 .ipynb 时提示新建/打开 Notebook  [ModelScope Code Editor 里还没打开 Notebook：请打开或新建一个 .ipynb 文件（File → New File… → Jupyter Notebook）]
 PASS [ms] 在“我的 Notebook”列表页提示先启动实例并点「查看」  [请先启动 Notebook 实例，再点「查看 / View」打开 Code Editor]
 
 === 截图 ===
 PASS [demo] 截图用的运行也成功
 
-115/115 checks passed
+127/127 checks passed

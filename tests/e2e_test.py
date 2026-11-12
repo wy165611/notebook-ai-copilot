@@ -122,7 +122,7 @@ def last_bot(panel):
 def click_and_wait_result(panel, msg, selector):
     msg.evaluate("(m) => { m.querySelector('.result').textContent = ''; }")
     msg.query_selector(selector).click()
-    panel.wait_for_function("(m) => /已插入|失败/.test(m.querySelector('.result').textContent)", arg=msg, timeout=20000)
+    panel.wait_for_function("(m) => /已插入|已写入|失败/.test(m.querySelector('.result').textContent)", arg=msg, timeout=30000)
     return msg.query_selector('.result').inner_text()
 
 def lab_active_cell_text(page):
@@ -161,7 +161,7 @@ def test_jupyterlab(ctx, sw, port, mode):
     panel.set_viewport_size({'width': 420, 'height': 1000})
     set_storage(panel, providers=mock_providers(), active='bailian', thinking='default', includeContext=True, modelCache={})
     status = wait_status_ok(panel)
-    want = ('（jupyterlab，JupyterLab API，主页面）' in status) if mode == 'app' else ('（jupyterlab，主页面）' in status)
+    want = ('（jupyterlab，JupyterLab API，主页面）' in status) if mode == 'app' else ('（jupyterlab，JupyterLab 模型，主页面）' in status)
     check(f'[{mode}] 检测到 Notebook', want, status)
 
     # 1) 生成代码，带上下文（默认：百炼 + deepseek-v4.1-flash）
@@ -178,6 +178,8 @@ def test_jupyterlab(ctx, sw, port, mode):
     n0, out0 = lab_cell_count(page), lab_outputs(page)
     r = click_and_wait_result(panel, msg, '.act-insert')
     check(f'[{mode}] 插入到新单元格', lab_cell_count(page) == n0 + 1, r)
+    if mode == 'dom':
+        check('[dom] 没暴露 app 时通过监听器钩子找到 Notebook widget，直接写单元格模型', 'jupyterlab-model(listener-hook)' in r, r)
     txt = lab_active_cell_text(page) or ''
     check(f'[{mode}] 新单元格内容就是生成的代码', txt.strip() == code.strip(), txt[:60])
     time.sleep(1.5)
@@ -213,7 +215,8 @@ STRIP_BUTTONS_JS = """() => {
 }"""
 
 def fallback_checks(tag, target, panel, msg, count_js, done_js):
-    """平台把工具栏藏起来 / 干脆没有这些按钮时的兜底路径。"""
+    """平台把工具栏藏起来 / 干脆没有这些按钮时的兜底路径（关掉模型写入，测 DOM 兜底）。"""
+    target.evaluate("() => { window.__nbacNoModel = true; }")
     # a) 工具栏被 CSS 隐藏：隐藏的按钮仍然可用
     target.add_style_tag(content='.jp-Toolbar { display: none !important; }')
     n = target.eval_on_selector_all('.jp-Notebook .jp-Cell', count_js)
@@ -240,6 +243,12 @@ def fallback_checks(tag, target, panel, msg, count_js, done_js):
     check(f'[{tag}] 没有任何按钮时用快捷键/底部添加区插入并用 Shift+Enter 运行', ('keyboard' in r or 'notebook-footer' in r) and target.eval_on_selector_all('.jp-Notebook .jp-Cell', count_js) >= n + 1 and ok, r)
 
 COUNT_JS = 'e => e.length'
+BLOCK_TYPING_JS = """() => {
+  window.__nbacBlockTyping = true;
+  for (const t of ['paste', 'beforeinput', 'input', 'textInput', 'keydown', 'keypress', 'compositionend']) {
+    document.addEventListener(t, (e) => { if (window.__nbacBlockTyping) { e.stopImmediatePropagation(); e.preventDefault(); } }, true);
+  }
+}"""
 FIXED_N_JS = "(n) => document.body.innerText.split('NBAC_FIXED 1.0').length > n"
 
 def menu_levels(panel):
@@ -482,9 +491,13 @@ def test_aistudio(ctx, sw):
     check('[aistudio] 系统提示带清华镜像（国内平台）', 'pypi.tuna.tsinghua.edu.cn' in L.get('system', ''))
     msg = last_bot(panel)
     n0 = fr.eval_on_selector_all('.jp-Notebook .jp-Cell', COUNT_JS)
+    # 模拟真实 AI Studio 里“往编辑器打字/粘贴都失败”：拦掉所有输入事件，并且不用监听器钩子（只靠 webpack 运行时找模型）
+    fr.evaluate(BLOCK_TYPING_JS)
+    fr.evaluate("() => { window.__nbacNoListenerHook = true; }")
     r = click_and_wait_result(panel, msg, '.act-insert')
     txt = fr.evaluate("() => { const c = document.querySelector('.jp-Notebook .jp-Cell.jp-mod-active .cm-content'); return c ? c.cmView.view.state.doc.toString() : ''; }")
-    check('[aistudio] 插入新单元格并写入代码', fr.eval_on_selector_all('.jp-Notebook .jp-Cell', COUNT_JS) == n0 + 1 and txt.strip() == code.strip(), r)
+    check('[aistudio] 打字/粘贴全被拦掉时，仍通过 JupyterLab 模型（webpack 共享作用域）插入并写入代码', fr.eval_on_selector_all('.jp-Notebook .jp-Cell', COUNT_JS) == n0 + 1 and txt.strip() == code.strip() and 'jupyterlab-model(share-scope' in r, r)
+    fr.evaluate("() => { window.__nbacBlockTyping = false; window.__nbacNoListenerHook = false; }")
     msg.query_selector('.act-run').click()
     check('[aistudio] 运行前要确认', msg.query_selector('.confirm').is_visible())
     r = click_and_wait_result(panel, msg, '.act-confirm')
@@ -500,17 +513,24 @@ def test_aistudio(ctx, sw):
     panel.screenshot(path=str(SHOT_DIR / 'aistudio-panel.png'))
     panel.close(); page.close()
 
-def test_aistudio_monaco(ctx, sw):
-    """AI Studio 的单元格编辑器实际是 Monaco：用照抄真实 DOM 的夹具 + 真实 monaco-editor（不暴露 window.monaco）测读写。运行是假的。"""
-    print('\n=== 飞桨 AI Studio Monaco 单元格（真实 DOM 结构夹具，运行为假） ===', flush=True)
+def aistudio_monaco_case(ctx, sw, query, tag):
     page = ctx.new_page()
     page.set_viewport_size({'width': 1000, 'height': 900})
-    page.goto(AIS + '/bj-cpu-01/user/123/789/home#codelab')
-    fr = wait_frame(page, lambda f: f.url.endswith('/789/lab') and f.evaluate('() => !!window.__fixtureReady'), 'monaco fixture', 30)
-    check('[monaco] 夹具里没有全局 window.monaco', fr.evaluate("() => !window.monaco"))
+    page.goto(AIS + '/bj-cpu-01/user/123/789/home' + query + '#codelab')
+    fr = wait_frame(page, lambda f: '/789/lab' in f.url and f.evaluate('() => !!window.__fixtureReady'), 'monaco fixture', 30)
     panel = open_panel(ctx, sw, AIS + '/bj-cpu-01/user/123/789/*')
     set_storage(panel, providers=mock_providers(), active='bailian', thinking='default', includeContext=True)
     status = wait_status_ok(panel)
+    return page, fr, panel, status
+
+MONACO_ACTIVE_JS = "() => { const c = document.querySelector('.jp-Cell.jp-mod-active'); return c ? window.__fixtureMonaco.editor.getEditors().find(e => c.contains(e.getDomNode())).getValue() : ''; }"
+
+def test_aistudio_monaco(ctx, sw):
+    """AI Studio 的单元格编辑器是 Monaco（真实页面是旧版 Monaco：隐藏的 textarea.inputarea）：
+    用照抄真实 DOM 的夹具 + 真实 monaco-editor（不暴露 window.monaco）测读写。运行是假的。"""
+    print('\n=== 飞桨 AI Studio Monaco 单元格（真实 DOM 结构夹具，运行为假） ===', flush=True)
+    page, fr, panel, status = aistudio_monaco_case(ctx, sw, '', 'monaco')
+    check('[monaco] 夹具里没有全局 window.monaco，编辑器用 textarea.inputarea（和真实页面一致）', fr.evaluate("() => !window.monaco && !!document.querySelector('.monaco-editor textarea.inputarea') && !document.querySelector('.native-edit-context')"))
     check('[monaco] 检测到 Notebook', '飞桨 AI Studio' in status and 'jupyterlab' in status, status)
     code, _, _ = ask(panel, fix=True)
     L = last()
@@ -519,10 +539,37 @@ def test_aistudio_monaco(ctx, sw):
     n0 = fr.eval_on_selector_all('.jp-Cell', COUNT_JS)
     msg.query_selector('.act-run').click()
     r = click_and_wait_result(panel, msg, '.act-confirm')
-    val = fr.evaluate("() => { const c = document.querySelector('.jp-Cell.jp-mod-active'); return c ? window.__fixtureMonaco.editor.getEditors().find(e => c.contains(e.getDomNode())).getValue() : ''; }")
-    check('[monaco] 用中文标题的单元格工具栏按钮插入，并通过粘贴写入 Monaco（内容完全一致，没有多出括号）', fr.eval_on_selector_all('.jp-Cell', COUNT_JS) == n0 + 1 and val.strip() == code.strip() and 'monaco-paste' in r, r + ' | ' + val[:80])
+    val = fr.evaluate(MONACO_ACTIVE_JS)
+    check('[monaco] 用中文标题的单元格工具栏按钮插入，并通过 AMD loader 里的 Monaco API 写入（内容完全一致）', fr.eval_on_selector_all('.jp-Cell', COUNT_JS) == n0 + 1 and val.strip() == code.strip() and 'monaco-api(amd-require)' in r, r + ' | ' + val[:80])
     check('[monaco] Shift+Enter 运行（夹具的假运行）', wait_text(fr, 'NBAC_FIXED 1.0', 10000))
     page.screenshot(path=str(SHOT_DIR / 'aistudio-monaco.png'))
+    panel.close(); page.close()
+
+    # 没有 AMD loader：只能对 textarea 发粘贴事件
+    page, fr, panel, status = aistudio_monaco_case(ctx, sw, '?noamd=1', 'monaco-noamd')
+    code, _, _ = ask(panel, fix=True)
+    msg = last_bot(panel)
+    r = click_and_wait_result(panel, msg, '.act-insert')
+    val = fr.evaluate(MONACO_ACTIVE_JS)
+    check('[monaco] 拿不到 Monaco API 时对 textarea.inputarea 粘贴写入（内容完全一致）', val.strip() == code.strip() and 'monaco-paste' in r, r)
+    panel.close(); page.close()
+
+    # 打字/粘贴全失败（真实页面报“写入 Monaco 编辑器失败”的情况）：提示并复制到剪贴板，不运行
+    page, fr, panel, status = aistudio_monaco_case(ctx, sw, '?notyping=1', 'monaco-notyping')
+    code, _, _ = ask(panel, fix=True)
+    msg = last_bot(panel)
+    k = fr.evaluate("() => document.body.innerText.split('NBAC_FIXED 1.0').length")
+    msg.query_selector('.act-run').click()
+    r = click_and_wait_result(panel, msg, '.act-confirm')
+    time.sleep(1)
+    notice = panel.inner_text('#notice') if panel.is_visible('#notice') else ''
+    ran = fr.evaluate("() => document.body.innerText.split('NBAC_FIXED 1.0').length") > k
+    check('[monaco] 所有写入方式都失败时：提示失败、代码复制到剪贴板、不运行', '插入失败' in r and '剪贴板' in r and '剪贴板' in notice and not ran, r + ' | ' + notice)
+    # 诊断信息里能看到失败的步骤
+    data = panel.evaluate("() => copyDiagnosticsForTest()")
+    fr_diag = [f for f in data['frames'] if '/789/lab' in (f.get('url') or '')]
+    le = fr_diag[0].get('lastError') if fr_diag else None
+    check('[monaco] 诊断信息里记录了最近一次写入失败的步骤', bool(le) and 'Monaco' in le.get('message', '') and any(s.get('step') == 'monaco-write-failed' for s in le.get('steps', [])), json.dumps(le, ensure_ascii=False)[:300])
     panel.close(); page.close()
 
 def test_aistudio_outer(ctx, sw):
@@ -639,6 +686,46 @@ def test_modelscope(ctx, sw):
     outs = fr.evaluate("() => window.__fixtureOutputs")
     notice = panel.inner_text('#notice') if panel.is_visible('#notice') else ''
     check('[ms] 写不进编辑器时提示并把代码复制到剪贴板，不运行', '插入失败' in r and ('剪贴板' in r or '复制' in r) and '自动写入单元格失败' in notice and not outs, r + ' | ' + notice)
+    panel.close(); page.close()
+
+    # 真实页面里 + Code 可能只在悬停时出现、没有 aria-label、只响应 mousedown；可能是中文界面；可能根本没有按钮
+    for query, tag, want in [
+        ('&hover=1&kernel=local', '悬停才出现、只有 title、只响应 mousedown 的单元格 + Code', 'cell-toolbar+monaco-paste'),
+        ('&zh=1&kernel=local', '中文界面的工具栏“代码”按钮', 'notebook-toolbar+monaco-paste'),
+        ('&nobuttons=1&kernel=local', '没有任何 + Code 按钮时按 B', 'keyboard(B)+monaco-paste'),
+    ]:
+        page, fr, panel = ms_open(ctx, sw, query)
+        wait_status_ok(panel)
+        code, _, _ = ask(panel, '写一段代码')
+        msg = last_bot(panel)
+        r = click_and_wait_result(panel, msg, '.act-insert')
+        cells = fr.evaluate(MS_CELLS_JS)
+        new = [c for c in cells if c['focused']]
+        check(f'[ms] {tag}：插在当前单元格下方并写入', len(cells) == 3 and new and new[0]['i'] == 2 and new[0]['code'].strip() == code.strip() and want in r, r)
+        panel.close(); page.close()
+
+    # 既插不了新单元格、又按 B 无效，但当前选中的是空单元格：直接写进去
+    page, fr, panel = ms_open(ctx, sw, '&noinsert=1&kernel=local')
+    wait_status_ok(panel)
+    code, _, _ = ask(panel, '写一段代码')
+    msg = last_bot(panel)
+    msg.query_selector('.act-run').click()
+    r = click_and_wait_result(panel, msg, '.act-confirm')
+    cells = fr.evaluate(MS_CELLS_JS)
+    outs = fr.evaluate("() => window.__fixtureOutputs")
+    check('[ms] 插入新单元格失败时写进当前选中的空单元格并运行', len(cells) == 3 and cells[2]['code'].strip() == code.strip() and '已写入当前选中的空单元格' in r
+          and outs and outs[-1]['index'] == 2 and outs[-1]['text'] == 'NBAC_OK 42 True', r)
+    # 诊断信息：每个 frame 的结构、候选按钮；不含代码、输出和 Key
+    panel.click('#plusBtn'); panel.click('#diagnose')
+    panel.wait_for_function("() => /诊断信息/.test(document.getElementById('notice').textContent) && !/正在收集/.test(document.getElementById('notice').textContent)", timeout=15000)
+    data = panel.evaluate("() => copyDiagnosticsForTest()")
+    text = json.dumps(data, ensure_ascii=False)
+    wb = [f for f in data['frames'] if '/notebook/main.html' in (f.get('url') or '')]
+    check('[diag] 诊断信息包含所有 frame（外层页面、notebook-ide、extensionHost），标出适配器和关键选择器数量',
+          len(data['frames']) >= 3 and wb and wb[0]['adapter'] == 'vscode-notebook' and wb[0]['counts']['.native-edit-context'] >= 3 and data['version'] == '0.1.1', text[:300])
+    check('[diag] ModelScope 列出候选动作按钮（tag/class/aria-label/title/文字）', wb and any(a.get('aria') == 'Add Markdown Cell' for a in wb[0].get('actions', [])) and len(wb[0].get('actions', [])) <= 60, json.dumps(wb[0].get('actions', [])[:3], ensure_ascii=False) if wb else '')
+    check('[diag] 诊断信息不含代码、输出和 API Key', 'y = 1/0' not in text and 'NBAC_OK' not in text and 'print(' not in text and KEY not in text)
+    check('[diag] 点按钮后提示已复制到剪贴板（或显示在框里手动复制）', '诊断信息已复制' in panel.inner_text('#notice') or panel.is_visible('#diagOutput'), panel.inner_text('#notice'))
     panel.close(); page.close()
 
     # 没打开 Notebook / 在“我的 Notebook”列表页
