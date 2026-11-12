@@ -2,7 +2,7 @@ import {
   PRESETS, PROVIDER_IDS, THINKING_LEVELS, loadSettings, saveSettings, updateProvider,
   supportedThinking, listModels, generate, buildUserMessage, extractCode
 } from '../lib/llm.js';
-import { PROBE_CODE, parseProbeOutput, mergeHardware, hardwareLabel } from '../lib/hardware.js';
+import { PROBE_CODE, AUTO_PROBE_CODE, parseProbeOutput, mergeHardware, hardwareLabel } from '../lib/hardware.js';
 import { MAIN_SCRIPTS, ISOLATED_SCRIPTS, classifyInjectError, originPattern, isInternalUrl } from '../lib/inject.js';
 
 const $ = (id) => document.getElementById(id);
@@ -542,7 +542,7 @@ function probeHardware() {
 // 连接后自动检测一次硬件（显卡型号、显存、内存、CPU 核数），结果按网页保存 12 小时
 // JupyterLab（Kaggle、安睿云、AI Studio 等）：在已连接的内核里静默运行，不新建单元格
 // VS Code 网页版 Notebook（ModelScope）：网页里没有内核接口，只能插入一个只读检测单元格并运行；每个网页 12 小时内最多一次
-const HW_TRIED_KEY = 'nbacHwAutoTried';
+const HW_TRIED_KEY = 'nbacHwAutoTried2'; // 0.1.9 改了读取方式，换个键让旧的“已试过”记录失效
 let autoProbing = false;
 async function autoProbe(t) {
   if (!t || t !== target || autoProbing || !hwKey) return;
@@ -566,16 +566,17 @@ async function autoProbe(t) {
       await chrome.storage.local.set({ [HW_TRIED_KEY]: tried });
       showNotice('正在自动检测硬件：在 Notebook 里插入了一个只读的检测单元格并运行（不安装任何东西，检测完可以删掉）。');
       try {
-        await call('insertCellBelow', { code: PROBE_CODE });
+        await call('insertCellBelow', { code: AUTO_PROBE_CODE });
         await call('runCell', {});
       } catch (e) { showNotice('自动检测硬件没成功：' + e.message + '。可以点「+ → 检测硬件」再试。'); return; }
-      const hw = await readProbeResult((msg) => showNotice(msg));
+      const hw = await readProbeResult((msg) => showNotice(msg), true);
       if (hw) showNotice('已自动检测硬件：' + hardwareLabel(hw));
     }
   } finally { autoProbing = false; }
 }
 
-async function readProbeResult(setResult) {
+// waitWriteBack：自动检测会把结果写回单元格文字，输出框读不到也要一直等到结果写回
+async function readProbeResult(setResult, waitWriteBack = false) {
   const base = '已插入并运行检测代码';
   for (let i = 0; i < 45; i++) {
     await new Promise((r) => setTimeout(r, 2000));
@@ -583,7 +584,7 @@ async function readProbeResult(setResult) {
     try { r = await call('readHardwareProbe', {}); } catch { continue; }
     const hw = r && r.line ? parseProbeOutput(r.line) : null;
     if (hw) { await storeProbe(hw); setResult(base + '。硬件：' + hardwareLabel(hw) + '（之后生成的代码会按这个硬件来写）'); return hw; }
-    if (r && r.unreadable && i >= 4) {
+    if (r && r.unreadable && i >= (waitWriteBack ? 44 : 4)) {
       setResult(base + '。这个平台的输出在单独的安全框里，扩展读不到：请把输出里以 NBAC_HW 开头的那一行复制到输入框发给我');
       return null;
     }

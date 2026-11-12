@@ -10,7 +10,7 @@
 (() => {
   // 扩展更新后，网页里可能还留着旧版脚本（页面世界里的脚本不会随扩展重新加载而消失）。
   // 所以按版本判断是否已加载，消息事件名也带版本号，旧脚本收不到新版的请求。BUILD 必须和 manifest 的 version 一致（单元测试会检查）
-  const BUILD = '0.1.8';
+  const BUILD = '0.1.9';
   if (window.__nbacPageBuild === BUILD) return;
   window.__nbacPageLoaded = true;
   window.__nbacPageBuild = BUILD;
@@ -873,6 +873,15 @@
       const m = (o.innerText || o.textContent || '').match(/NBAC_HW\s*\{[^\n]*\}/g);
       if (m) found = m[m.length - 1];
     });
+    // VS Code 网页版：自动检测代码会把结果写回单元格本身（# NBAC_HW {...}），从单元格文字里读
+    if (!found && vscodeNotebook.detect()) {
+      for (const row of vscodeNotebook.rows()) {
+        const m = vscodeNotebook.monacoOf(row);
+        const t = m ? monacoViewText(m).replace(/\u00a0/g, ' ') : '';
+        const hit = t.match(/^#\s*NBAC_HW\s*\{[^\n]*\}/m);
+        if (hit) found = hit[0].replace(/^#\s*/, '');
+      }
+    }
     return { line: found, unreadable: !found && !!vscodeNotebook.detect() && vscodeNotebook.outputUnreadable() };
   }
 

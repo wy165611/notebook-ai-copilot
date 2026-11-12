@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
-import { PROBE_CODE, parseProbeOutput, mergeHardware, hardwareLabel, hardwareRule } from '../src/lib/hardware.js';
+import { PROBE_CODE, AUTO_PROBE_CODE, parseProbeOutput, mergeHardware, hardwareLabel, hardwareRule } from '../src/lib/hardware.js';
 import { MAIN_SCRIPTS, ISOLATED_SCRIPTS, classifyInjectError, originPattern, isInternalUrl } from '../src/lib/inject.js';
 import { extractCode, systemPrompt, buildUserMessage, thinkingParams, supportedThinking, filterChatModels, PRESETS, DEFAULTS } from '../src/lib/llm.js';
 
@@ -42,6 +42,10 @@ assert.deepEqual(filterChatModels(['qwen3.8-max', 'paraformer-v2', 'qwen-tts', '
   const H = sandbox.__nbacHelpers;
   const code = 'import numpy as np\nif True:\n    print((1, [2]))\n# done\n';
   assert.ok(H.codeMatches(code, code));
+  { const long = Array.from({ length: 40 }, (_, i) => 'x' + i).join('\n');
+    assert.ok(H.codeMatches('x37\nx38\nx39', long), '只渲染了末尾几行也算写对');
+    assert.ok(!H.codeMatches('x36\nx37\nx38', long), '没有最后一行不算');
+    assert.ok(!H.codeMatches('x38\nx39', long), '少于 3 行不算'); }
   assert.ok(H.codeMatches('import numpy as np  \r\nif True:\n    print((1, [2]))\n# done', code), '行尾空白和 \\r 不算差异');
   assert.ok(!H.codeMatches(code.replace('# done', '    # done'), code), '缩进不同必须算不一致（自动缩进）');
   assert.ok(!H.codeMatches(code.replace('[2])', '[2]))'), code), '多出括号必须算不一致（自动补括号）');
@@ -111,7 +115,7 @@ assert.deepEqual(filterChatModels(['qwen3.8-max', 'paraformer-v2', 'qwen-tts', '
 // manifest：安睿云域名在所有内容脚本里都匹配、全部 frame 注入
 {
   const man = JSON.parse(fs.readFileSync(new URL('../manifest.json', import.meta.url), 'utf8'));
-  assert.equal(man.version, '0.1.8');
+  assert.equal(man.version, '0.1.9');
   for (const f of ['src/content/page.js', 'src/content/bridge.js', 'src/content/nb-helpers.js']) {
     const src = fs.readFileSync(new URL('../' + f, import.meta.url), 'utf8');
     const m = src.match(/const BUILD = '([^']+)'/);
@@ -204,7 +208,13 @@ assert.deepEqual(filterChatModels(['qwen3.8-max', 'paraformer-v2', 'qwen-tts', '
   const sc = systemPrompt('ModelScope', cpu);
   assert.match(sc, /只有 CPU/); assert.match(sc, /device="cpu"/);
   // 检测代码：只读、打印 NBAC_HW，不安装任何东西
-  assert.match(PROBE_CODE, /print\("NBAC_HW " \+ json\.dumps/); assert.doesNotMatch(PROBE_CODE, /pip install|%pip/);
+  assert.match(PROBE_CODE, /line = "NBAC_HW " \+ json\.dumps/); assert.match(PROBE_CODE, /print\(line\)/);
+  assert.match(PROBE_CODE, /_nbac_probe\(\)\ndel _nbac_probe/);
+  assert.match(AUTO_PROBE_CODE, /_nbac_probe\(replace=True\)\ndel _nbac_probe/); assert.notEqual(AUTO_PROBE_CODE, PROBE_CODE);
+  assert.match(AUTO_PROBE_CODE, /set_next_input\("# 硬件检测结果[^"]*\\n# " \+ line, replace=True\)/);
+  assert.equal(parseProbeOutput('# NBAC_HW {"vendor":"nvidia","devices":[{"name":"A10","vram_gb":22}],"cpu_count":8,"ram_gb":30,"torch":"2.3"}').cpuCores, 8);
+  assert.match(hardwareRule({ vendor: 'nvidia', model: 'A10', vramGB: 22, cpuCores: 8, ramGB: 30 }), /所有代码都要按上面这份实际配置来写/);
+  assert.doesNotMatch(hardwareRule(null), /实际配置/); assert.doesNotMatch(PROBE_CODE, /pip install|%pip/);
   assert.match(PROBE_CODE, /torch\.version, "hip"/); assert.match(PROBE_CODE, /rocm-smi/); assert.match(PROBE_CODE, /timeout=20/);
 }
 

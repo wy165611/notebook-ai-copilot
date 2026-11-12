@@ -3,7 +3,7 @@
 
 // “检测硬件”单元格：只读取信息，不安装、不修改任何东西；最后打印一行 NBAC_HW {json}
 export const PROBE_CODE = `# 检测硬件（只读取信息，不安装任何东西；变量都放在函数里，不影响你的代码）
-def _nbac_probe():
+def _nbac_probe(replace=False):
     import json, os, platform, shutil, subprocess, sys
     info = {"python": platform.python_version(), "vendor": "cpu", "devices": []}
     # CPU 核数：容器里以 cgroup 限额为准
@@ -68,10 +68,18 @@ def _nbac_probe():
                 info["devices"].append({"name": p.name, "vram_gb": round(p.total_memory / 1024 ** 3, 1)})
     except Exception as e:
         info["torch_error"] = type(e).__name__ + ": " + str(e)[:120]
-    print("NBAC_HW " + json.dumps(info, ensure_ascii=False))
+    line = "NBAC_HW " + json.dumps(info, ensure_ascii=False)
+    print(line)
+    if replace:
+        # 输出在扩展读不到的安全框里（VS Code 网页版）时：把结果写回这个单元格本身，扩展从单元格文字里读取
+        try: get_ipython().set_next_input("# 硬件检测结果（Notebook AI Copilot 已自动读取），可以删除这个单元格\\n# " + line, replace=True)
+        except Exception: pass
 _nbac_probe()
 del _nbac_probe
 `;
+
+// 自动检测用：结果同时写回单元格（VS Code 网页版 Notebook 的输出读不到）
+export const AUTO_PROBE_CODE = PROBE_CODE.replace('_nbac_probe()\ndel _nbac_probe', '_nbac_probe(replace=True)\ndel _nbac_probe');
 
 // 从输出文字里取最后一行 NBAC_HW {...}，返回统一格式的硬件对象或 null
 export function parseProbeOutput(text) {
@@ -132,7 +140,14 @@ function resourceNote(hw) {
 
 // 给模型的第 7 条规则
 export function hardwareRule(hw) {
-  return baseRule(hw) + resourceNote(hw);
+  return baseRule(hw) + resourceNote(hw) + fitNote(hw);
+}
+
+// 让代码按用户的实际配置来写，而不是按“通用”配置
+function fitNote(hw) {
+  if (!hw || !(hw.vendor === 'amd' || hw.vendor === 'nvidia' || (hw.vendor === 'cpu' && hw.source === 'probe') || hw.cpuCores || hw.ramGB)) return '';
+  return '所有代码都要按上面这份实际配置来写：模型规模、精度（显存紧张时用半精度/混合精度）、batch size、num_workers、数据量都按这份配置选，' +
+    '不要写超出显存或内存的代码；在代码注释里用一句话说明按什么配置选的这些参数。';
 }
 
 function baseRule(hw) {

@@ -600,18 +600,47 @@ def test_aistudio_outer(ctx, sw):
 
 MS = 'http://modelscope.test:8771'
 
-def ms_open(ctx, sw, query=''):
+def ms_open(ctx, sw, query='', auto_probe=False):
     page = ctx.new_page()
     page.set_viewport_size({'width': 1100, 'height': 900})
     page.goto(MS + '/code/workspace?instanceId=dsw-test&resourceType=free&acceleratorType=CPU' + query)
     fr = wait_frame(page, lambda f: '/notebook/main.html' in f.url and f.evaluate('() => !!window.__fixtureReady'), 'notebook-ide', 30)
     # 这些用例按单元格位置检查，先标记“已自动检测过硬件”，避免自动插入检测单元格打乱位置
-    sw.evaluate("(k) => chrome.storage.local.set({nbacHwAutoTried: {[k]: Date.now()}})", MS + '/code/workspace')
+    if auto_probe:
+        sw.evaluate("() => chrome.storage.local.remove(['nbacHwAutoTried2', 'nbacHardware'])")
+    else:
+        sw.evaluate("(k) => chrome.storage.local.set({nbacHwAutoTried2: {[k]: Date.now()}})", MS + '/code/workspace')
     panel = open_panel(ctx, sw, MS + '/code/*')
     set_storage(panel, providers=mock_providers(), active='bailian', thinking='default', includeContext=True)
     return page, fr, panel
 
 MS_CELLS_JS = "() => window.__fixtureCells.map(c => ({i: +c.row.dataset.index, focused: c.row.classList.contains('focused'), code: c.ed.getValue()}))"
+
+def test_modelscope_autoprobe(ctx, sw):
+    """ModelScope 输出在跨域 webview 里读不到：自动插入检测单元格并运行，内核用 set_next_input 把结果写回单元格，扩展从单元格文字里读。
+    夹具不跑 Python，这里手动模拟内核写回。"""
+    print('\n=== ModelScope 自动检测硬件 ===', flush=True)
+    page, fr, panel = ms_open(ctx, sw, auto_probe=True)
+    wait_status_ok(panel)
+    idx = None
+    for _ in range(40):
+        cells = fr.evaluate(MS_CELLS_JS)
+        hit = [c for c in cells if '_nbac_probe(replace=True)\ndel _nbac_probe' in c['code']]
+        if hit: idx = hit[0]['i']; break
+        time.sleep(0.5)
+    check('[ms-auto] 连接后自动插入检测单元格（带 replace=True 写回结果）', idx is not None, str(idx))
+    if idx is not None:
+        time.sleep(4)  # 等插入校验和运行完成，再模拟内核写回
+        fr.evaluate("(i) => window.__fixtureCells.find(c => +c.row.dataset.index === i).ed.setValue('# 硬件检测结果\\n# NBAC_HW {\"vendor\":\"nvidia\",\"devices\":[{\"name\":\"NVIDIA A10\",\"vram_gb\":22.0}],\"cpu_count\":8,\"ram_gb\":30.0,\"torch\":\"2.3\"}')", idx)
+    ok = False
+    for _ in range(40):
+        hw = panel.inner_text('#hw')
+        if 'NVIDIA A10' in hw and '8 核 CPU' in hw and '30 GB 内存' in hw and '已检测' in hw: ok = True; break
+        time.sleep(0.5)
+    notice = panel.inner_text('#notice') if panel.is_visible('#notice') else ''
+    txt = fr.evaluate("(i) => { const c = window.__fixtureCells.find(c => +c.row.dataset.index === i); return c ? c.ed.getValue().slice(0, 80) + ' || ' + c.row.innerText.slice(0, 120) : 'nocell'; }", idx) if idx is not None else ''
+    check('[ms-auto] 从单元格文字读回检测结果：显卡型号、显存、CPU 核数、内存', ok, hw + ' | ' + notice + ' | ' + txt)
+    panel.close(); page.close()
 
 def test_modelscope(ctx, sw):
     """ModelScope 免费 CPU 实例的 Code Editor：外层页面同源嵌 VS Code 工作台（iframe[title=notebook-ide]），
@@ -986,7 +1015,9 @@ def main():
             for t in (test_options, test_models_and_thinking,
                       lambda c, s: test_jupyterlab(c, s, 8899, 'dom'),
                       lambda c, s: test_jupyterlab(c, s, 8900, 'app'),
-                      test_kaggle, test_aistudio, test_aistudio_monaco, test_aistudio_outer, test_modelscope, test_anrui, test_selfhosted, screenshot_demo):
+                      test_kaggle, test_aistudio, test_aistudio_monaco, test_aistudio_outer, test_modelscope, test_modelscope_autoprobe, test_anrui, test_selfhosted, screenshot_demo):
+                only = os.environ.get('NBAC_ONLY')
+                if only and getattr(t, '__name__', '') != only: continue
                 try:
                     t(ctx, sw)
                 except Exception as e:

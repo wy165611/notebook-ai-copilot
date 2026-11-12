@@ -1,7 +1,7 @@
 // 纯函数（不碰 DOM），给 page.js 用，也方便 node 单元测试（tests/unit_test.mjs 用 vm 加载本文件）。
 (() => {
   const root = typeof window !== 'undefined' ? window : globalThis;
-  const BUILD = '0.1.8'; // 和 manifest 的 version 一致；旧版留在网页里的 helpers 会被替换
+  const BUILD = '0.1.9'; // 和 manifest 的 version 一致；旧版留在网页里的 helpers 会被替换
   if (root.__nbacHelpers && root.__nbacHelpers.build === BUILD) return;
 
   // 比较用：去掉 \r、每行行尾空白、首尾空行
@@ -14,7 +14,10 @@
     const g0 = normCode(got), w0 = normCode(want);
     if (g0 === w0) return true;
     const g = g0.split('\n'), w = w0.split('\n');
-    return g.length >= 20 && w.length > g.length && g.every((l, i) => (i === g.length - 1 ? w[i].startsWith(l) : l === w[i]));
+    if (g.length >= 20 && w.length > g.length && g.every((l, i) => (i === g.length - 1 ? w[i].startsWith(l) : l === w[i]))) return true;
+    // 写完后光标在末尾，编辑器滚到底部只渲染了最后几行：渲染出来的是原文末尾连续的几行（含最后一行），也算写对
+    const off = w.length - g.length;
+    return g.length >= 3 && off > 0 && g.every((l, i) => (i === 0 ? l.trim() === w[off].trim() : l === w[off + i]));
   }
 
   // Monaco 的 .view-line：按 top 排序（DOM 顺序不一定是行号顺序），&nbsp; 还原成空格
