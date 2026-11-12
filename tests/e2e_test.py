@@ -600,12 +600,14 @@ def test_aistudio_outer(ctx, sw):
 
 MS = 'http://modelscope.test:8771'
 
-def ms_open(ctx, sw, query='', auto_probe=False):
+def ms_open(ctx, sw, query='', auto_probe=False, busy=False):
     page = ctx.new_page()
     page.set_viewport_size({'width': 1100, 'height': 900})
     page.goto(MS + '/code/workspace?instanceId=dsw-test&resourceType=free&acceleratorType=CPU' + query)
     fr = wait_frame(page, lambda f: '/notebook/main.html' in f.url and f.evaluate('() => !!window.__fixtureReady'), 'notebook-ide', 30)
     # 这些用例按单元格位置检查，先标记“已自动检测过硬件”，避免自动插入检测单元格打乱位置
+    if busy:  # 模拟有单元格正在运行（VS Code 状态栏的转圈图标）
+        fr.evaluate("() => { const r = document.querySelector('.code-cell-row'); const i = document.createElement('span'); i.id = 'nbac-test-busy'; i.className = 'codicon codicon-notebook-state-executing'; r.appendChild(i); }")
     if auto_probe:
         sw.evaluate("() => chrome.storage.local.remove(['nbacHwAutoTried2', 'nbacHardware'])")
     else:
@@ -620,8 +622,17 @@ def test_modelscope_autoprobe(ctx, sw):
     """ModelScope 输出在跨域 webview 里读不到：自动插入检测单元格并运行，内核用 set_next_input 把结果写回单元格，扩展从单元格文字里读。
     夹具不跑 Python，这里手动模拟内核写回。"""
     print('\n=== ModelScope 自动检测硬件 ===', flush=True)
-    page, fr, panel = ms_open(ctx, sw, auto_probe=True)
+    page, fr, panel = ms_open(ctx, sw, auto_probe=True, busy=True)
     wait_status_ok(panel)
+    probe_cells = lambda: [c for c in fr.evaluate(MS_CELLS_JS) if '_nbac_probe(replace=True)' in c['code']]
+    hw = ''
+    for _ in range(30):
+        hw = panel.inner_text('#hw')
+        if '等它跑完' in hw: break
+        time.sleep(0.5)
+    time.sleep(6)
+    check('[ms-auto] 有单元格正在运行时不插检测单元格，硬件行写明在等它跑完', '等它跑完' in hw and not probe_cells(), hw)
+    fr.evaluate("() => document.getElementById('nbac-test-busy').remove()")
     idx = None
     for _ in range(40):
         cells = fr.evaluate(MS_CELLS_JS)
@@ -807,6 +818,12 @@ def test_dsw(ctx, sw):
     cells = lambda: page.query_selector_all('.jp-Notebook .jp-Cell .cm-content')
     cells()[0].click(); page.keyboard.press('Shift+Enter')
     page.wait_for_function("() => [...document.querySelectorAll('.jp-OutputArea-output')].some(e => e.innerText.includes('42'))", timeout=60000)
+    # 用户的内核正在跑很久的代码（截图里是 lm_eval 冒烟测试）：检测不能排在它后面
+    cells()[1].click()
+    page.keyboard.press('Escape'); page.keyboard.press('b'); time.sleep(0.5); page.keyboard.press('Enter')
+    page.keyboard.type('import time\nprint("LONG_JOB_START", flush=True)\ntime.sleep(90)')
+    page.keyboard.press('Control+Enter')
+    page.wait_for_function("() => document.body.innerText.includes('LONG_JOB_START')", timeout=30000)
     cells()[1].click()
     n0 = lab_cell_count(page)
     panel = open_panel(ctx, sw, DSW + '/dsw-*')
@@ -817,9 +834,16 @@ def test_dsw(ctx, sw):
     hw = ''
     for _ in range(90):
         hw = panel.inner_text('#hw')
-        if '已检测' in hw or '没成功' in hw: break
+        if '核 CPU' in hw or '没成功' in hw: break
         time.sleep(1)
-    check('[dsw] 连接后自动在内核里静默检测硬件：显示 CPU 核数和内存，不新建单元格', '核 CPU' in hw and 'GB 内存' in hw and '已检测' in hw and lab_cell_count(page) == n0, hw)
+    if '核 CPU' not in hw:
+        print('DBG diag', json.dumps(panel.evaluate("() => copyDiagnosticsForTest()"), ensure_ascii=False)[:4000])
+    check('[dsw] 内核正忙时另开临时内核静默检测：显示 CPU 核数和内存，不新建单元格', '核 CPU' in hw and 'GB 内存' in hw and lab_cell_count(page) == n0, hw)
+    kernels = json.loads(urllib.request.urlopen('http://127.0.0.1:8904' + DSW_BASE + 'api/kernels').read())
+    check('[dsw] 临时内核检测完已关掉，用户的内核还在跑', len(kernels) == 1 and kernels[0].get('execution_state') == 'busy', json.dumps(kernels)[:200])
+    # 中断用户的长任务，后面的插入并运行用例才能跑
+    page.keyboard.press('Escape'); page.keyboard.press('i'); page.keyboard.press('i')
+    page.wait_for_function("() => document.body.innerText.includes('KeyboardInterrupt')", timeout=30000)
     check('[dsw] 页面上看不到检测代码的输出', not page.evaluate("() => document.body.innerText.includes('NBAC_HW')"))
     code, _, _ = ask(panel, '读一个 csv 并画图')
     L = last()
@@ -885,25 +909,19 @@ def test_anrui(ctx, sw):
     msg.query_selector('.act-run').click()
     r = click_and_wait_result(panel, msg, '.act-confirm')
     check('[anrui] 修复报错后运行成功（NBAC_FIXED 1.0）', 'NBAC_FIXED' in code and wait_text(page, 'NBAC_FIXED 1.0'), r)
-    # 「+ → 检测硬件」：插入只读检测代码，确认后运行并读回结果（本机没有 torch / GPU → 仅 CPU）
+    # 「+ → 检测硬件」：JupyterLab 上直接在内核里静默检测，不新建单元格（本机没有 torch / GPU → 显卡沿用页面的 AMD）
     n_bots = bot_count(panel)
-    panel.click('#plusBtn'); panel.click('#probeHw')
-    panel.wait_for_function("(n) => document.querySelectorAll('.msg.bot:not(.pending)').length > n", arg=n_bots, timeout=5000)
-    msg = last_bot(panel)
-    probe = msg.query_selector('textarea').input_value()
-    check('[anrui] 检测硬件：给出只读的检测代码（打印 NBAC_HW，不安装东西）', 'NBAC_HW' in probe and 'torch.version' in probe and 'pip install' not in probe)
     n0 = lab_cell_count(page)
-    msg.query_selector('.act-run').click()
-    check('[anrui] 检测硬件也要先确认才运行', msg.query_selector('.confirm').is_visible() and lab_cell_count(page) == n0)
-    msg.query_selector('.act-confirm').click()
+    panel.click('#plusBtn'); panel.click('#probeHw')
     ok = True
     try:
-        panel.wait_for_function("(m) => /硬件：/.test(m.querySelector('.result').textContent)", arg=msg, timeout=60000)
+        panel.wait_for_function("(n) => { const b = [...document.querySelectorAll('.msg.bot:not(.pending)')]; return b.length > n && /已检测硬件|没成功/.test(b[b.length - 1].textContent); }", arg=n_bots, timeout=60000)
     except Exception:
         ok = False
-    res = msg.query_selector('.result').inner_text()
+    res = last_bot(panel).inner_text()
     hw = panel.inner_text('#hw')
-    check('[anrui] 检测硬件：运行后自动读回结果并保存（本机没有 torch：显卡沿用页面的 AMD，CPU 核数和内存用检测结果）', ok and '核 CPU' in res and hw.startswith('硬件：AMD GPU（ROCm）') and '核 CPU' in hw and 'GB 内存' in hw, res + ' | ' + hw)
+    check('[anrui] 检测硬件：在内核里静默检测、不新建单元格（本机没有 torch：显卡沿用页面的 AMD，CPU 核数和内存用检测结果）', ok and '已检测硬件' in res and '核 CPU' in res and lab_cell_count(page) == n0
+          and hw.startswith('硬件：AMD GPU（ROCm）') and '核 CPU' in hw and 'GB 内存' in hw, res + ' | ' + hw)
     panel.click('#plusBtn'); panel.click('#refresh')
     wait_status_ok(panel)
     hw = panel.inner_text('#hw')

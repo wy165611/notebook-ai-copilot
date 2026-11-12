@@ -115,7 +115,9 @@ function showHw(hw) {
   const e = $('hw');
   if (!target) { e.hidden = true; return; }
   e.hidden = false;
-  e.textContent = '硬件：' + hardwareLabel(hw) + (probeFail && !(hw && hw.source === 'probe') && !(hw && hw.cpuCores) ? '（自动检测没成功：' + probeFail + '，可以点「+ → 检测硬件」）' : '');
+  const measured = hw && (hw.source === 'probe' || hw.cpuCores);
+  e.textContent = '硬件：' + (probeRunning && !measured ? '正在自动检测显卡、显存、CPU 核数和内存…' : hardwareLabel(hw) +
+    (probeFail && !measured ? (probeWait ? '（' + probeFail + '）' : '（自动检测没成功：' + probeFail + '，可以点「+ → 检测硬件」）') : ''));
   e.title = hw && hw.evidence ? '依据：' + hw.evidence : (hw && hw.source === 'probe' ? '来自“检测硬件”单元格的输出' : '“+ → 检测硬件”可以在 Notebook 里运行一段只读的检测代码');
 }
 
@@ -532,11 +534,24 @@ function probeHardware() {
   $('welcome').hidden = true;
   addUser('检测硬件');
   const m = addThinking();
-  renderBot(m, {
-    text: '这段代码只读取硬件信息（PyTorch 能否用 GPU、是 AMD ROCm 还是 NVIDIA CUDA、显卡型号和显存），不安装任何东西。点「插入并运行」并确认后，我会自动读取结果。',
+  const showCell = (prefix) => renderBot(m, {
+    text: (prefix || '') + '这段代码只读取硬件信息（显卡型号和显存、CPU 核数、内存、PyTorch 能否用 GPU），不安装任何东西。点「插入并运行」并确认后，我会自动读取结果。',
     code: PROBE_CODE, meta: '内置 · 检测硬件',
     onRan: (setResult) => readProbeResult(setResult)
   });
+  // JupyterLab：直接在内核里静默检测（内核在忙也不用排队），不新建单元格
+  if (target && target.kind === 'jupyterlab' && hwKey) {
+    const t = target, key = hwKey;
+    silentProbe(t, key).then((r) => {
+      if (r.stale) return;
+      probeFail = r.hw ? '' : r.reason;
+      showHw(pageHw);
+      if (r.hw) renderBot(m, { info: '已检测硬件（在后台运行，没有新建单元格）：' + hardwareLabel(r.hw) + '。之后生成的代码会按这个配置来写。', meta: '内置 · 检测硬件' });
+      else showCell('后台检测没成功（' + r.reason + '）。');
+    });
+    return;
+  }
+  showCell();
 }
 
 // 连接后自动检测一次硬件（显卡型号、显存、内存、CPU 核数），结果按网页保存 12 小时
@@ -544,7 +559,10 @@ function probeHardware() {
 // VS Code 网页版 Notebook（ModelScope）：网页里没有内核接口，只能插入一个只读检测单元格并运行；每个网页 12 小时内最多一次
 const HW_TRIED_KEY = 'nbacHwAutoTried2'; // 0.1.9 改了读取方式，换个键让旧的“已试过”记录失效
 let autoProbing = false;
-let probeFail = ''; // 自动检测没成功的原因，显示在硬件那一行
+const VS_BUSY_POLL_S = 5;
+let probeFail = '';
+let probeWait = false; // probeFail 只是“在等别的单元格跑完”，不是失败
+let probeRunning = false; // 正在后台检测 // 自动检测没成功的原因，显示在硬件那一行
 async function autoProbe(t) {
   if (!t || t !== target || autoProbing || !hwKey) return;
   if ((await savedProbe(hwKey))) return;
@@ -552,25 +570,9 @@ async function autoProbe(t) {
   autoProbing = true;
   try {
     if (t.kind === 'jupyterlab') {
-      probeFail = '';
-      // 内核可能还在启动：没连上就隔几秒再试；ROCm 版 torch 导入很慢，单次最多等 2 分钟
-      let reason = '';
-      for (let i = 0; i < 6; i++) {
-        let r = null;
-        try {
-          r = await withTimeout(chrome.tabs.sendMessage(t.tabId, { type: 'nbac', action: 'kernelProbe', args: { code: PROBE_CODE, timeoutMs: 120000 }, timeoutMs: 125000 }, { frameId: t.frameId }), 127000);
-        } catch (e) { reason = '没有响应（' + String(e && e.message || e).slice(0, 60) + '）'; break; }
-        if (target !== t || hwKey !== key) return;
-        const res = r && r.ok !== false ? (r.result !== undefined ? r.result : r) : null;
-        const hw = res && res.output ? parseProbeOutput(res.output) : null;
-        if (hw) { probeFail = ''; await storeProbe(hw); return; }
-        reason = !r || r.ok === false ? '出错：' + String(r && r.error || '无返回').slice(0, 80)
-          : res.unavailable ? (res.unavailable === 'no-kernel' ? '还没连上内核' : '内核状态 ' + res.unavailable.replace(/^kernel-/, ''))
-          : res.busy ? '内核正忙' : '2 分钟内没有输出结果';
-        if (!(res && (res.unavailable || res.busy))) break;
-        await new Promise((ok) => setTimeout(ok, 5000));
-      }
-      probeFail = reason;
+      const r = await silentProbe(t, key);
+      if (r.stale) return;
+      probeFail = r.hw ? '' : r.reason;
       showHw(pageHw);
       return;
     }
@@ -583,6 +585,17 @@ async function autoProbe(t) {
       } catch { /* ignore */ }
       const tried = (await chrome.storage.local.get(HW_TRIED_KEY))[HW_TRIED_KEY] || {};
       if (tried[key] && Date.now() - tried[key] < 12 * 3600 * 1000) return;
+      // 有单元格正在运行（比如训练）：检测单元格会排在它后面，先等它跑完再插（最多等 6 小时）
+      for (let i = 0; i < 6 * 3600 / VS_BUSY_POLL_S; i++) {
+        let b = null;
+        try { b = await call('notebookBusy', {}); } catch { /* ignore */ }
+        if (!(b && b.busy)) break;
+        if (hwKey !== key) { probeWait = false; probeFail = ''; return; }
+        if (!probeWait) { probeWait = true; probeFail = '有单元格正在运行，这个平台只能插单元格检测，会排在它后面，等它跑完会自动检测'; showHw(pageHw); }
+        await new Promise((ok) => setTimeout(ok, VS_BUSY_POLL_S * 1000));
+      }
+      if (probeWait) { probeWait = false; probeFail = ''; showHw(pageHw); }
+      if (hwKey !== key) return;
       tried[key] = Date.now();
       await chrome.storage.local.set({ [HW_TRIED_KEY]: tried });
       showNotice('正在自动检测硬件：在 Notebook 里插入了一个只读的检测单元格并运行（不安装任何东西，检测完可以删掉）。');
@@ -593,7 +606,40 @@ async function autoProbe(t) {
       const hw = await readProbeResult((msg) => showNotice(msg), true);
       if (hw) showNotice('已自动检测硬件：' + hardwareLabel(hw));
     }
-  } finally { autoProbing = false; }
+  } finally {
+    autoProbing = false;
+    showHw(pageHw);
+    // 检测期间切到了别的页面：给新页面补一次自动检测
+    if (target && target !== t && hwKey && hwKey !== key) setTimeout(() => autoProbe(target), 0);
+  }
+}
+
+// JupyterLab：在内核里静默运行检测代码（内核在忙时页面另开临时内核），不新建单元格。返回 {hw} 或 {reason}
+async function silentProbe(t, key) {
+  probeFail = '';
+  probeRunning = true; showHw(pageHw);
+  let reason = '';
+  try {
+    for (let i = 0; i < 4; i++) {
+      let r = null;
+      try {
+        r = await withTimeout(chrome.tabs.sendMessage(t.tabId, { type: 'nbac', action: 'kernelProbe', args: { code: PROBE_CODE, timeoutMs: 120000 }, timeoutMs: 125000 }, { frameId: t.frameId }), 127000);
+      } catch (e) { reason = '没有响应（' + String(e && e.message || e).slice(0, 60) + '）'; break; }
+      // 检测期间侧边栏可能重新连接了同一个页面（target 换了新对象）：只要还是同一个页面，结果照样用
+      if (hwKey !== key) return { stale: true };
+      const res = r && r.ok !== false ? (r.result !== undefined ? r.result : r) : null;
+      const hw = res && res.output ? parseProbeOutput(res.output) : null;
+      if (hw) { probeRunning = false; await storeProbe(hw); return { hw }; }
+      reason = !r || r.ok === false ? '出错：' + String(r && r.error || '无返回').slice(0, 80)
+        : res.unavailable === 'no-kernel' ? '还没连上内核'
+        : res.unavailable === 'busy' ? '内核正在运行别的代码，临时内核也没开起来' + (res.temp ? '（' + res.temp + '）' : '')
+        : res.unavailable ? '内核状态 ' + res.unavailable.replace(/^kernel-/, '')
+        : '2 分钟内没有输出结果';
+      if (!(res && res.unavailable && res.unavailable !== 'busy')) break;
+      await new Promise((ok) => setTimeout(ok, 5000));
+    }
+  } finally { probeRunning = false; }
+  return { reason };
 }
 
 // waitWriteBack：自动检测会把结果写回单元格文字，输出框读不到也要一直等到结果写回

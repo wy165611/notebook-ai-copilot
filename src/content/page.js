@@ -10,7 +10,7 @@
 (() => {
   // 扩展更新后，网页里可能还留着旧版脚本（页面世界里的脚本不会随扩展重新加载而消失）。
   // 所以按版本判断是否已加载，消息事件名也带版本号，旧脚本收不到新版的请求。BUILD 必须和 manifest 的 version 一致（单元测试会检查）
-  const BUILD = '0.1.11';
+  const BUILD = '0.1.12';
   if (window.__nbacPageBuild === BUILD) return;
   window.__nbacPageLoaded = true;
   window.__nbacPageBuild = BUILD;
@@ -642,6 +642,12 @@
       const hasOut = row.querySelector('.output') && !this.outputText(row);
       return !!(hasOut || this.editor().querySelector('iframe.webview'));
     },
+    // 有单元格正在运行（VS Code 单元格状态栏的转圈图标 / 运行按钮变成停止）：这时插入的检测单元格会排在它后面
+    busy() {
+      const ed = this.editor();
+      if (!ed) return false;
+      return !!ed.querySelector('.codicon-notebook-state-executing, .cell-status-item .codicon-modifier-spin, .code-cell-row .codicon-notebook-stop, .code-cell-row .codicon-debug-stop, .code-cell-row.executing');
+    },
     kernelHint() {
       const ed = this.editor();
       if (!ed) return '';
@@ -809,6 +815,49 @@
       return { ran: true, via: 'keyboard(Ctrl+Enter)', notice: this.kernelHint() };
     }
   };
+
+  // 在内核里执行一段代码，收集 stream 输出（不进历史），最多等 limit 毫秒
+  async function collectExecute(kernel, code, limit) {
+    const future = kernel.requestExecute({ code, silent: false, store_history: false, allow_stdin: false, stop_on_error: false }, true);
+    let out = '';
+    future.onIOPub = (msg) => {
+      const t = msg && msg.header && msg.header.msg_type;
+      if (t === 'stream' && msg.content && msg.content.text) out += msg.content.text;
+    };
+    await Promise.race([Promise.resolve(future.done).catch(() => {}), new Promise((r) => setTimeout(r, limit))]);
+    return out;
+  }
+
+  // 另开一个同类型的临时内核运行检测代码，结束后关掉（不影响正在运行的内核）
+  async function probeInTempKernel(kernel, code, limit) {
+    const ss = kernel.serverSettings;
+    const Ctor = kernel.constructor;
+    if (!ss || !ss.baseUrl || typeof Ctor !== 'function') return { unavailable: 'busy' };
+    const base = ss.baseUrl.replace(/\/?$/, '/');
+    const headers = { 'Content-Type': 'application/json' };
+    if (ss.token) headers.Authorization = 'token ' + ss.token;
+    const xsrf = (document.cookie.match(/(?:^|;\s*)_xsrf=([^;]*)/) || [])[1];
+    if (xsrf) headers['X-XSRFToken'] = decodeURIComponent(xsrf);
+    const doFetch = (url, init) => (ss.fetch || window.fetch).call(window, url, { credentials: 'same-origin', ...init, headers: { ...headers, ...(ss.init && ss.init.headers) } });
+    let model = null, temp = null;
+    try {
+      const resp = await doFetch(base + 'api/kernels', { method: 'POST', body: JSON.stringify({ name: kernel.name }) });
+      if (!resp.ok) return { unavailable: 'busy', temp: 'start-' + resp.status };
+      model = await resp.json();
+      temp = new Ctor({ model, serverSettings: ss, handleComms: false });
+      await Promise.race([Promise.resolve(temp.info), new Promise((r) => setTimeout(r, 30000))]);
+      const out = await collectExecute(temp, code, limit);
+      const m = out.match(/NBAC_HW\s*\{[^\n]*\}/g);
+      return { output: m ? m[m.length - 1] : '', temp: 'used' };
+    } catch (e) {
+      return { unavailable: 'busy', temp: 'error-' + String(e && e.message || e).slice(0, 60) };
+    } finally {
+      if (model && model.id) {
+        try { if (temp) temp.dispose(); } catch { /* ignore */ }
+        try { await doFetch(base + 'api/kernels/' + encodeURIComponent(model.id), { method: 'DELETE' }); } catch { /* ignore */ }
+      }
+    }
+  }
 
   function platformName() {
     if (window.__nbacForceKaggle) return 'Kaggle';
@@ -996,19 +1045,22 @@
       }
       const kernel = ctx && ctx.session && ctx.session.kernel;
       if (!kernel || !kernel.requestExecute) return { unavailable: 'no-kernel' };
-      if (/dead|unknown|starting|restarting|autorestarting/.test(String(kernel.status || '')) || kernel.connectionStatus === 'disconnected') return { unavailable: 'kernel-' + (kernel.status || kernel.connectionStatus) };
-      const future = kernel.requestExecute({ code, silent: false, store_history: false, allow_stdin: false, stop_on_error: false }, true);
-      let out = '';
-      future.onIOPub = (msg) => {
-        const t = msg && msg.header && msg.header.msg_type;
-        if (t === 'stream' && msg.content && msg.content.text) out += msg.content.text;
-      };
+      const st = String(kernel.status || '');
       const limit = Math.min(Number(timeoutMs) || 30000, 150000);
-      await Promise.race([Promise.resolve(future.done).catch(() => {}), new Promise((r) => setTimeout(r, limit))]);
+      trace('kernel-probe', { status: st, connection: kernel.connectionStatus || null });
+      // 内核正在跑用户自己的代码（比如长时间训练）：不排队，另开一个临时内核检测，检测完马上关掉
+      if (st === 'busy') {
+        const r = await probeInTempKernel(kernel, code, Math.min(limit, 90000));
+        trace('kernel-probe-temp', { got: !!r.output, temp: r.temp || null });
+        return r;
+      }
+      if (/dead|unknown|starting|restarting|autorestarting/.test(st) || kernel.connectionStatus === 'disconnected') return { unavailable: 'kernel-' + (st || kernel.connectionStatus) };
+      const out = await collectExecute(kernel, code, limit);
       const m = out.match(/NBAC_HW\s*\{[^\n]*\}/g);
       return { output: m ? m[m.length - 1] : '', busy: !m && /busy/.test(String(kernel.status || '')) };
     },
     hardwareHint() { return computeHardwareHint(); },
+    notebookBusy() { const a = pickAdapter(); return { busy: a === vscodeNotebook ? vscodeNotebook.busy() : false }; },
     async getContext() {
       const a = pickAdapter();
       if (!a) throw new Error('当前页面没有检测到 Notebook');
