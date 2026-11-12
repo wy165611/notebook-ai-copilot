@@ -10,7 +10,7 @@
   <header class="top">
     <div class="title">Notebook AI 助手</div>
     <div class="top-actions">
-      <button class="icon" id="newChat" title="新对话">
+      <button class="icon" id="newChat" title="新对话（清空聊天记录）">
         <svg viewBox="0 0 24 24"><path d="M19 13H5v-2h14v2z"/></svg>
       </button>
       <button class="icon" id="openOptions" title="设置（API Key / 服务商）">
@@ -22,6 +22,11 @@
     </div>
   </header>
 
+  <div id="clearConfirm" class="clear-confirm" hidden>
+    <span>清空全部聊天记录？</span>
+    <button class="act danger" id="clearYes">清空</button>
+    <button class="act" id="clearNo">取消</button>
+  </div>
   <div id="status" class="status">正在检测当前页面的 Notebook…</div>
   <div id="hw" class="hw" hidden></div>
   <div id="siteAccess" class="site-access" hidden>
@@ -33,10 +38,20 @@
     <section id="welcome" class="welcome">
       <h1 class="hello">你好</h1>
       <p class="sub">今天需要我做些什么？</p>
-      <div class="chips">
+      <div class="chips" data-mode="notebook">
         <button class="chip" data-prompt="配置好训练 YOLO11m 的环境（安装 ultralytics，检查 GPU）">配置 YOLO11 训练环境</button>
         <button class="chip" data-prompt="写好用 YOLO11m 训练 RDD2022 路面病害数据集的代码，data.yaml 路径放在开头变量里">写 YOLO11m 训练代码</button>
         <button class="chip" data-action="fix">修复当前报错</button>
+      </div>
+      <div class="chips" data-mode="terminal" hidden>
+        <button class="chip" data-prompt="查看显卡、显存、CPU、内存和磁盘空间">查看机器配置</button>
+        <button class="chip" data-prompt="用镜像安装 ultralytics，并检查 PyTorch 能不能用 GPU">安装 ultralytics</button>
+        <button class="chip" data-prompt="用 hf-mirror 下载一个 Hugging Face 模型到 ./models 目录，模型名放在开头变量里">下载 Hugging Face 模型</button>
+      </div>
+      <div class="chips" data-mode="chat" hidden>
+        <button class="chip" data-prompt="我的显卡跑 YOLO11m 训练，batch size 设多少合适？">batch size 怎么选</button>
+        <button class="chip" data-prompt="CUDA out of memory 一般是什么原因，怎么解决？">显存不够怎么办</button>
+        <button class="chip" data-action="fix">解释当前报错</button>
       </div>
     </section>
     <div id="messages"></div>
@@ -45,6 +60,11 @@
   <footer class="composer-wrap">
     <div id="notice" class="notice" hidden></div>
     <textarea id="diagOutput" class="diag-output" readonly hidden></textarea>
+    <div class="modes" id="modes" role="tablist" aria-label="模式">
+      <button class="mode-btn" data-mode="notebook" role="tab" title="写 Python 代码，插入到 Notebook 单元格并运行">Notebook</button>
+      <button class="mode-btn" data-mode="terminal" role="tab" title="写终端（bash）命令，可以复制到终端，或者用 %%bash 单元格在 Notebook 里运行">终端</button>
+      <button class="mode-btn" data-mode="chat" role="tab" title="聊天问答，只回答问题，不改动 Notebook">聊天</button>
+    </div>
     <div class="composer" id="composer">
       <div id="ctxChip" class="ctx-chip" hidden>
         <svg viewBox="0 0 24 24"><path d="M16.5 6v11.5a4 4 0 0 1-8 0V5a2.5 2.5 0 0 1 5 0v10.5a1 1 0 0 1-2 0V6H10v9.5a2.5 2.5 0 0 0 5 0V5a4 4 0 0 0-8 0v12.5a5.5 5.5 0 0 0 11 0V6h-1.5z"/></svg>
@@ -78,6 +98,7 @@
       <button class="menu-item" id="probeHw">检测硬件（GPU / CPU）</button>
       <button class="menu-item" id="refresh">重新检测 Notebook</button>
       <button class="menu-item" id="diagnose">复制诊断信息</button>
+      <button class="menu-item" id="clearHistory">清空聊天记录</button>
     </div>
     <div id="thinkMenu" class="menu" hidden>
       <div class="menu-title">思考强度</div>

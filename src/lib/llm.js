@@ -39,6 +39,7 @@ export const DEFAULTS = {
   active: 'bailian',
   thinking: 'max',
   includeContext: true,
+  mode: 'notebook', // 侧边栏模式：notebook（写单元格）/ terminal（终端命令）/ chat（聊天问答）
   temperature: 0.2,
   providers: Object.fromEntries(PROVIDER_IDS.map((id) => [id, { baseUrl: PRESETS[id].baseUrl, apiKey: '', model: PRESETS[id].model }])),
   modelCache: {}
@@ -123,8 +124,43 @@ export function thinkingParams(providerId, model, level) {
 }
 
 // ---------- 提示词 ----------
-export function systemPrompt(platform, hardware) {
-  const china = /AI Studio|ModelScope|安睿云/.test(platform || '');
+export const MODES = ['notebook', 'terminal', 'chat'];
+export const MODE_LABELS = { notebook: 'Notebook', terminal: '终端', chat: '聊天' };
+export function normalizeMode(mode) { return MODES.includes(mode) ? mode : 'notebook'; }
+function isChinaPlatform(platform) { return /AI Studio|ModelScope|安睿云/.test(platform || ''); }
+
+export function systemPrompt(platform, hardware, mode = 'notebook') {
+  mode = normalizeMode(mode);
+  const china = isChinaPlatform(platform);
+  if (mode === 'terminal') {
+    return [
+      `你是 ${platform || 'Jupyter'} 上的终端（bash）助手，用户会把你给的命令粘贴到这个平台的终端里运行（或者放进 Notebook 的 %%bash 单元格里运行）。`,
+      '规则：',
+      '1. 只输出一个 ```bash 代码块，里面是可以按顺序直接运行的 shell 命令；代码块外最多写一两句话说明。不要输出 Python 单元格，不要用 %pip / ! 这类 Notebook 魔法命令。',
+      '2. 命令必须是非交互的：apt-get / conda 加 -y，pip 加 -q 或 --no-input，解压加 -o 覆盖确认等，不要写需要人工输入的步骤；耗时很长的任务用 nohup … > xxx.log 2>&1 & 放到后台并说明怎么看日志。',
+      china
+        ? '3. 这是国内平台：pip 安装加清华镜像 pip install <包> -i https://pypi.tuna.tsinghua.edu.cn/simple ；从 Hugging Face 下载前先 export HF_ENDPOINT=https://hf-mirror.com（huggingface-cli / hf download 都走这个镜像）。'
+        : '3. 这是海外平台，正常使用 PyPI 和 Hugging Face 即可。',
+      '4. 删除、覆盖、杀进程、改系统配置等有破坏性的命令（rm -rf、mv 覆盖、kill、chmod -R 等）要尽量缩小范围，并且在那条命令上一行用 # 注释写明「⚠️ 警告：…」说清楚会删除/覆盖什么。',
+      '5. 不要编造路径；不确定的路径、文件名写成开头的变量（例如 DATA_DIR=…），方便用户修改。命令要可以重复运行（已存在的目录/文件要能跳过）。',
+      '6. 用户给了报错时，先用一两句话说原因，再给出修复用的完整命令。',
+      hardwareRule(hardware) + '（在终端里，上面提到的 %pip 一律换成 pip；查看显卡用对应厂商的 nvidia-smi / rocm-smi。）'
+    ].join('\n');
+  }
+  if (mode === 'chat') {
+    return [
+      `你是 ${platform || 'Jupyter'} Notebook 旁边的问答助手，用中文回答用户的问题（编程、Python、深度学习、训练调参、平台使用、报错原因等）。`,
+      '规则：',
+      '1. 直接回答问题，条理清楚，用简短的段落或列表；不需要每次都写完整代码。',
+      '2. 需要示例代码或命令时，放在 ``` 代码块里并标明语言（```python / ```bash）。',
+      china
+        ? '3. 这是国内平台，涉及安装依赖或下载模型时，提醒用清华 PyPI 镜像（https://pypi.tuna.tsinghua.edu.cn/simple）和 hf-mirror.com。'
+        : '3. 这是海外平台，正常使用 PyPI 和 Hugging Face 即可。',
+      '4. 不确定的事情直接说不确定，不要编造 API、参数或路径。',
+      '5. 回答和硬件有关的问题（能不能跑、batch size、显存够不够等）时，按下面这份配置来回答。',
+      hardwareRule(hardware)
+    ].join('\n');
+  }
   return [
     `你是运行在 ${platform || 'Jupyter'} Notebook 里的编程助手。`,
     '规则：',
@@ -154,6 +190,21 @@ export function extractCode(text) {
   const m = text.match(/```(?:python|py|ipython)?[^\n]*\n([\s\S]*?)```/i);
   if (m) return m[1].replace(/\s+$/, '') + '\n';
   return text.trim() + '\n';
+}
+
+// 终端模式：取第一个 bash/sh 代码块（没有就取第一个不标语言的代码块），去掉行首的 “$ ” 提示符
+export function extractShell(text) {
+  if (!text) return '';
+  const blocks = [...text.matchAll(/```([\w+-]*)[^\n]*\n([\s\S]*?)```/g)].map((m) => ({ lang: m[1].toLowerCase(), body: m[2] }));
+  const pick = blocks.find((b) => /^(bash|sh|shell|zsh|console|shellsession)$/.test(b.lang)) || blocks.find((b) => !b.lang) || blocks[0];
+  const body = pick ? pick.body : text;
+  return body.split('\n').map((l) => l.replace(/^\$ /, '')).join('\n').replace(/\s+$/, '').replace(/^\s*\n/, '') + '\n';
+}
+
+// 终端命令放进 Notebook 运行：%%bash 单元格（已经是 %%bash / %%sh 开头的不重复加）
+export function bashCell(cmds) {
+  const c = String(cmds || '').replace(/^\s*\n/, '');
+  return /^%%(bash|sh)\b/.test(c) ? c : '%%bash\n' + c;
 }
 
 function trimSlash(u) { return String(u || '').replace(/\/+$/, ''); }
@@ -205,14 +256,14 @@ export async function listModels(providerId, cfg) {
 
 // ---------- 生成 ----------
 // history: [{role:'user'|'assistant', content}]
-export async function generate(settings, { platform, hardware, userMessage, history = [], signal }) {
+export async function generate(settings, { platform, hardware, userMessage, history = [], signal, mode = 'notebook' }) {
   const id = settings.active;
   const p = PRESETS[id];
   const cfg = settings.providers[id];
   const model = cfg.model;
   if (!cfg.apiKey) throw new Error(`请先在设置里填写「${p.label}」的 API Key`);
   if (!model) throw new Error('请先选择或输入模型 ID');
-  const sys = systemPrompt(platform, hardware);
+  const sys = systemPrompt(platform, hardware, mode);
   const think = thinkingParams(id, model, settings.thinking);
   const temperature = Number(settings.temperature) || 0.2;
 

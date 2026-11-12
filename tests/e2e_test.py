@@ -1030,6 +1030,123 @@ def test_options(ctx, sw):
     p.screenshot(path=str(SHOT_DIR / 'options.png'), full_page=True)
     p.close()
 
+def chat_store(panel):
+    return panel.evaluate("async () => (await chrome.storage.local.get('nbacChatHistory')).nbacChatHistory || []")
+
+def test_modes(ctx, sw):
+    """0.1.13：三个模式（Notebook / 终端 / 聊天）+ 聊天记录保存、单条删除、清空。"""
+    print('\n=== 模式切换和聊天记录 ===', flush=True)
+    page = prepare_lab_page(ctx, 8900)
+    glob = 'http://127.0.0.1:8900/*'
+    panel = open_panel(ctx, sw, glob)
+    try:
+        set_storage(panel, providers=mock_providers(), active='bailian', thinking='default', includeContext=True, modelCache={}, mode='notebook', nbacChatHistory=[])
+        panel.reload(); wait_status_ok(panel)
+        sel = lambda: panel.eval_on_selector('.mode-btn.selected', 'e => e.dataset.mode + "|" + e.textContent')
+        labels = panel.eval_on_selector_all('.mode-btn', 'els => els.map(e => e.textContent).join(",")')
+        check('[modes] 输入框上方有 Notebook / 终端 / 聊天 三个模式，默认 Notebook', labels == 'Notebook,终端,聊天' and sel() == 'notebook|Notebook', labels)
+
+        # 终端模式
+        panel.click('.mode-btn[data-mode="terminal"]')
+        time.sleep(0.5)
+        stored = panel.evaluate("async () => (await chrome.storage.local.get('mode')).mode")
+        check('[modes] 切到终端模式：按钮高亮、输入提示变了、保存到 storage',
+              sel() == 'terminal|终端' and '终端' in panel.get_attribute('#prompt', 'placeholder') and stored == 'terminal',
+              f'{sel()} {stored}')
+        check('[modes] 终端模式显示终端相关的快捷提问', panel.is_visible('.chips[data-mode="terminal"]') and not panel.is_visible('.chips[data-mode="notebook"]'))
+        code, txt, meta = ask(panel, '查看显卡和磁盘')
+        L = last()
+        check('[terminal] 系统提示要求 bash 命令（清华镜像、hf-mirror、非交互、破坏性命令警告、按硬件）',
+              '终端（bash）助手' in L.get('system', '') and 'pypi.tuna' not in L.get('system', '') and '-y' in L['system'] and '警告' in L['system'] and '7. ' in L['system'], L.get('system', '')[:80])
+        msg = last_bot(panel)
+        check('[terminal] 回复显示为 bash 命令，按钮是「复制」和「在 Notebook 里运行」（没有插入单元格按钮）',
+              'NBAC_BASH' in code and msg.query_selector('.act-bash') is not None and msg.query_selector('.act-insert') is None
+              and msg.query_selector('.act-copy') is not None and '终端模式' in meta and 'Bash' in txt, meta)
+        n0 = lab_cell_count(page)
+        msg.query_selector('.act-bash').click()
+        check('[terminal] 点「在 Notebook 里运行」先出现确认框，确认前不插入', msg.query_selector('.confirm').is_visible() and lab_cell_count(page) == n0)
+        r = click_and_wait_result(panel, msg, '.act-confirm')
+        cell = lab_active_cell_text(page) or ''
+        check('[terminal] 确认后插入 %%bash 单元格并运行，看到输出 NBAC_BASH 42',
+              wait_text(page, 'NBAC_BASH 42') and cell.startswith('%%bash\n') and 'NBAC_BASH' in cell and '%%bash' in r, r + ' | ' + cell[:40])
+
+        # 聊天模式
+        panel.click('.mode-btn[data-mode="chat"]')
+        time.sleep(0.3)
+        _, txt, meta = ask(panel, '显存不够怎么办')
+        L = last()
+        msg = last_bot(panel)
+        hist = [m for m in L['body']['messages'] if m['role'] == 'assistant']
+        check('[chat] 系统提示是问答助手，并带上之前的对话（终端那一轮）', '问答助手' in L.get('system', '') and any('```bash' in m['content'] for m in hist), str(len(hist)))
+        check('[chat] 回答显示成文字：不截断、HTML 被转义、没有插入/运行按钮',
+              'NBAC_CHAT_END' in txt and '<b>NBAC_CHAT_ANSWER</b>' in txt and msg.query_selector('.answer b') is None
+              and msg.query_selector('.act-insert') is None and msg.query_selector('.act-run') is None and '聊天模式' in meta, meta)
+        check('[chat] 回答里的代码块单独显示，并有复制按钮',
+              msg.eval_on_selector('.answer pre code', 'e => e.textContent') == 'print("NBAC_CHAT_CODE")' and msg.query_selector('.answer .copy-mini') is not None)
+        n_ins = lab_cell_count(page)
+
+        # 关掉再打开：记录和模式都在，按钮能用
+        panel.close()
+        panel = open_panel(ctx, sw, glob)
+        wait_status_ok(panel)
+        users, bots = panel.eval_on_selector_all('.msg.user', 'e => e.length'), panel.eval_on_selector_all('.msg.bot', 'e => e.length')
+        check('[history] 关掉侧边栏再打开，聊天记录和模式都还在', users == 2 and bots == 2 and sel() == 'chat|聊天'
+              and not panel.is_visible('#welcome') and 'NBAC_CHAT_END' in panel.inner_text('#messages'), f'{users} {bots} {sel()}')
+        bmsg = panel.query_selector('.msg.bot.mode-terminal')
+        bmsg.query_selector('.act-bash').click()
+        r = click_and_wait_result(panel, bmsg, '.act-confirm')
+        check('[history] 恢复出来的终端回答，「在 Notebook 里运行」照样能用', '%%bash' in r and lab_cell_count(page) == n_ins + 1, r)
+        cmsg = panel.query_selector('.msg.bot.mode-chat')
+        check('[history] 恢复出来的聊天回答没有插入按钮、代码块有复制按钮', cmsg.query_selector('.act-run') is None and cmsg.query_selector('.copy-mini') is not None)
+
+        # 删除单条
+        n_store = len(chat_store(panel))
+        cmsg.query_selector('.msg-del').click()
+        time.sleep(0.5)
+        st = chat_store(panel)
+        check('[delete] 点「删除」只删掉这一条（页面和保存的记录里都没了）',
+              panel.eval_on_selector_all('.msg', 'e => e.length') == 3 and len(st) == n_store - 1 and not any(r.get('mode') == 'chat' and r['role'] == 'bot' for r in st)
+              and 'NBAC_CHAT_END' not in panel.inner_text('#messages'), str(len(st)))
+        umsg = panel.query_selector_all('.msg.user')[-1]
+        umsg.query_selector('.msg-del').click()
+        time.sleep(0.5)
+        check('[delete] 用户消息也能单独删除', panel.eval_on_selector_all('.msg', 'e => e.length') == 2 and len(chat_store(panel)) == n_store - 2)
+        ask(panel, '再问一个问题')
+        L = last()
+        check('[delete] 删掉的消息不再发给模型', not any('NBAC_CHAT_END' in (m.get('content') or '') for m in L['body']['messages'][1:-1])
+              and any('```bash' in (m.get('content') or '') for m in L['body']['messages']))
+        panel.close()
+        panel = open_panel(ctx, sw, glob)
+        wait_status_ok(panel)
+        check('[delete] 删除后重新打开也不会回来', panel.eval_on_selector_all('.msg', 'e => e.length') == 4 and len(chat_store(panel)) == 4)
+
+        # 清空全部
+        panel.click('#newChat')
+        check('[clear] 点「新对话」先问「清空全部聊天记录？」', panel.is_visible('#clearConfirm') and '清空全部聊天记录？' in panel.inner_text('#clearConfirm'))
+        panel.click('#clearNo')
+        check('[clear] 取消后记录不变', not panel.is_visible('#clearConfirm') and panel.eval_on_selector_all('.msg', 'e => e.length') == 4)
+        panel.click('#plusBtn'); panel.click('#clearHistory')
+        check('[clear] 「+ → 清空聊天记录」也会先确认', panel.is_visible('#clearConfirm'))
+        panel.click('#clearYes')
+        time.sleep(0.5)
+        check('[clear] 确认后清空：页面回到欢迎页，保存的记录也清空',
+              panel.eval_on_selector_all('.msg', 'e => e.length') == 0 and panel.is_visible('#welcome') and chat_store(panel) == [])
+        panel.close()
+        panel = open_panel(ctx, sw, glob)
+        wait_status_ok(panel)
+        check('[clear] 清空后重新打开还是空的', panel.eval_on_selector_all('.msg', 'e => e.length') == 0 and panel.is_visible('#welcome'))
+        panel.click('.mode-btn[data-mode="notebook"]')
+        time.sleep(0.3)
+        code, _, _ = ask(panel, '配置好训练 YOLO11m 的环境')
+        check('[modes] 切回 Notebook 模式，和以前一样生成 Python 单元格', 'NBAC_OK' in code and last_bot(panel).query_selector('.act-insert') is not None
+              and '只输出一个可以直接运行的 Python 代码单元格' in last().get('system', ''))
+        panel.screenshot(path=str(SHOT_DIR / 'panel-modes.png'))
+    finally:
+        sw.evaluate("() => chrome.storage.local.set({mode: 'notebook'})")
+        try: panel.close()
+        except Exception: pass
+        page.close()
+
 def screenshot_demo(ctx, sw):
     """说明用截图：Notebook + 侧边栏（同一个面板页面，以弹窗形式打开）。"""
     print('\n=== 截图 ===', flush=True)
@@ -1072,7 +1189,7 @@ def main():
             sw = ctx.service_workers[0] if ctx.service_workers else ctx.wait_for_event('serviceworker')
             for t in (test_options, test_models_and_thinking,
                       lambda c, s: test_jupyterlab(c, s, 8899, 'dom'),
-                      lambda c, s: test_jupyterlab(c, s, 8900, 'app'),
+                      lambda c, s: test_jupyterlab(c, s, 8900, 'app'), test_modes,
                       test_kaggle, test_aistudio, test_aistudio_monaco, test_aistudio_outer, test_modelscope, test_modelscope_autoprobe, test_dsw, test_anrui, test_selfhosted, screenshot_demo):
                 only = os.environ.get('NBAC_ONLY')
                 if only and getattr(t, '__name__', '') != only: continue

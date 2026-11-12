@@ -1,6 +1,7 @@
 import {
   PRESETS, PROVIDER_IDS, THINKING_LEVELS, loadSettings, saveSettings, updateProvider,
-  supportedThinking, listModels, generate, buildUserMessage, extractCode
+  supportedThinking, listModels, generate, buildUserMessage, extractCode, extractShell, bashCell,
+  MODE_LABELS, normalizeMode
 } from '../lib/llm.js';
 import { PROBE_CODE, AUTO_PROBE_CODE, parseProbeOutput, mergeHardware, hardwareLabel } from '../lib/hardware.js';
 import { MAIN_SCRIPTS, ISOLATED_SCRIPTS, classifyInjectError, originPattern, isInternalUrl } from '../lib/inject.js';
@@ -12,7 +13,6 @@ const forcedTabId = params.has('tabId') ? Number(params.get('tabId')) : null;
 
 let target = null; // {tabId, frameId, platform, kind}
 let busy = false;
-let history = []; // [{role, content}]
 let settings = null;
 let lastPanelError = null;
 
@@ -254,7 +254,7 @@ async function call(action, args) {
 }
 
 // ---------- 设置：服务商 / 模型 / 思考强度 ----------
-async function refreshSettings() { settings = await loadSettings(); renderBar(); }
+async function refreshSettings() { settings = await loadSettings(); renderBar(); renderMode(); }
 function cur() { return settings.providers[settings.active]; }
 
 function renderBar() {
@@ -373,13 +373,73 @@ function el(tag, cls, html) { const e = document.createElement(tag); if (cls) e.
 function escapeHtml(s) { return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
 function scrollDown() { const c = $('chat'); c.scrollTop = c.scrollHeight; }
 
-function addUser(text) {
+// ---------- 聊天记录：保存在 chrome.storage.local（不含 API Key），重新打开侧边栏、换网页后都还在 ----------
+const CHAT_KEY = 'nbacChatHistory';
+const CHAT_MAX = 200;
+const LLM_MAX = 12000; // 每条发给模型的上下文最多存这么多字
+let chatLog = []; // [{id, role:'user'|'bot', mode, text, code, meta, info, error, llm, ts}]
+let chatSave = Promise.resolve();
+function newId() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
+async function loadChat() {
+  try {
+    const v = (await chrome.storage.local.get(CHAT_KEY))[CHAT_KEY];
+    chatLog = Array.isArray(v) ? v.filter((r) => r && r.id && (r.role === 'user' || r.role === 'bot')) : [];
+  } catch { chatLog = []; }
+}
+function saveChat() {
+  if (chatLog.length > CHAT_MAX) {
+    const drop = new Set(chatLog.slice(0, chatLog.length - CHAT_MAX).map((r) => r.id));
+    chatLog = chatLog.slice(-CHAT_MAX);
+    for (const id of drop) { const e = document.querySelector(`.msg[data-id="${id}"]`); if (e) e.remove(); }
+  }
+  const snap = chatLog.slice();
+  chatSave = chatSave.then(() => chrome.storage.local.set({ [CHAT_KEY]: snap })).catch(() => {});
+  return chatSave;
+}
+function record(rec) { const r = { id: newId(), ts: Date.now(), ...rec }; chatLog.push(r); saveChat(); return r; }
+function updateRecord(r, patch) { Object.assign(r, patch); if (chatLog.includes(r)) saveChat(); }
+function deleteRecord(id) {
+  chatLog = chatLog.filter((r) => r.id !== id);
+  const e = document.querySelector(`.msg[data-id="${id}"]`);
+  if (e) e.remove();
+  if (!$('messages').children.length) $('welcome').hidden = false;
+  return saveChat();
+}
+async function clearChat() {
+  chatLog = [];
+  $('messages').innerHTML = ''; $('welcome').hidden = false; $('clearConfirm').hidden = true; showNotice('');
+  await saveChat();
+}
+// 发给模型的历史：只取完整的「用户 → 回答」对（删掉的消息不会再发给模型），最近 3 轮
+function llmHistory() {
+  const out = [];
+  for (let i = 0; i < chatLog.length - 1; i++) {
+    const u = chatLog[i], b = chatLog[i + 1];
+    if (u.role === 'user' && u.llm && b.role === 'bot' && b.llm) { out.push({ role: 'user', content: u.llm }, { role: 'assistant', content: b.llm }); i++; }
+  }
+  return out.slice(-6);
+}
+function addDelete(m, rec) {
+  if (!rec) return;
+  m.dataset.id = rec.id;
+  const d = el('button', 'msg-del', '删除');
+  d.title = '删除这条消息（也不会再发给模型）';
+  d.addEventListener('click', (e) => { e.stopPropagation(); deleteRecord(rec.id); });
+  m.appendChild(d);
+}
+
+function addUser(text, rec) {
   $('welcome').hidden = true;
   const m = el('div', 'msg user');
+  if (rec) {
+    addDelete(m, rec);
+    if (rec.mode && rec.mode !== 'notebook') m.prepend(el('span', 'mode-tag', escapeHtml(MODE_LABELS[rec.mode] || '')));
+  }
   const b = el('div', 'bubble'); b.textContent = text;
   m.appendChild(b);
   $('messages').appendChild(m);
   scrollDown();
+  return m;
 }
 
 function addThinking() {
@@ -389,29 +449,78 @@ function addThinking() {
   return m;
 }
 
-function renderBot(m, { text, code, meta, error, onRan, info }) {
-  m.className = 'msg bot' + (error ? ' err' : '');
+async function copyText(text, fallbackEl) {
+  try { await navigator.clipboard.writeText(text); return true; } catch {
+    const t = fallbackEl || document.createElement('textarea');
+    if (!fallbackEl) { t.value = text; document.body.appendChild(t); }
+    t.select();
+    let ok = false;
+    try { ok = document.execCommand('copy'); } catch { ok = false; }
+    if (!fallbackEl) t.remove();
+    return ok;
+  }
+}
+
+// 聊天模式的回答：先转义，再做简单的排版（段落、行内代码、带复制按钮的代码块）
+function renderAnswer(text) {
+  const box = el('div', 'answer');
+  const re = /```([\w+-]*)[^\n]*\n([\s\S]*?)(?:```|$)/g;
+  let last = 0, mm;
+  const addText = (t) => {
+    for (const para of t.split(/\n{2,}/)) {
+      const p = para.replace(/^\n+|\n+$/g, '');
+      if (!p.trim()) continue;
+      const e = el('p', null, escapeHtml(p).replace(/`([^`\n]+)`/g, '<code>$1</code>').replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>'));
+      box.appendChild(e);
+    }
+  };
+  while ((mm = re.exec(text))) {
+    addText(text.slice(last, mm.index));
+    const code = mm[2].replace(/\s+$/, '');
+    const blk = el('div', 'codeblock');
+    const head = el('div', 'lang');
+    head.appendChild(el('span', null, escapeHtml(mm[1] || 'code')));
+    const cp = el('button', 'copy-mini', '复制');
+    cp.addEventListener('click', async () => { cp.textContent = (await copyText(code)) ? '已复制' : '复制失败'; setTimeout(() => { cp.textContent = '复制'; }, 1500); });
+    head.appendChild(cp);
+    blk.appendChild(head);
+    const pre = el('pre'); const c = el('code'); c.textContent = code; pre.appendChild(c); blk.appendChild(pre);
+    box.appendChild(blk);
+    last = re.lastIndex;
+  }
+  addText(text.slice(last));
+  return box;
+}
+
+function renderBot(m, { text, code, meta, error, onRan, info, mode, rec }) {
+  mode = normalizeMode(mode);
+  m.className = 'msg bot' + (error ? ' err' : '') + ' mode-' + mode;
   m.innerHTML = '';
+  addDelete(m, rec);
   if (meta) m.appendChild(el('div', 'meta', escapeHtml(meta)));
   if (error) { m.appendChild(el('div', 'text', escapeHtml(error))); return; }
   if (info) { m.appendChild(el('div', 'text hw-info', escapeHtml(info))); return; }
-  const outside = text.replace(/```[\s\S]*?```/g, '').trim();
+  if (mode === 'chat') { m.appendChild(renderAnswer(text || '')); scrollDown(); return; }
+  const term = mode === 'terminal';
+  const outside = (text || '').replace(/```[\s\S]*?```/g, '').trim();
   if (outside) m.appendChild(el('div', 'text', escapeHtml(outside.slice(0, 600))));
   const block = el('div', 'codeblock');
-  block.appendChild(el('div', 'lang', 'Python · 可直接修改后再插入'));
-  const ta = el('textarea'); ta.spellcheck = false; ta.value = code;
-  ta.rows = Math.min(22, Math.max(4, code.split('\n').length + 1));
+  block.appendChild(el('div', 'lang', term ? 'Bash · 终端命令，可直接修改' : 'Python · 可直接修改后再插入'));
+  const ta = el('textarea'); ta.spellcheck = false; ta.value = code || '';
+  ta.rows = Math.min(22, Math.max(4, ta.value.split('\n').length + 1));
   block.appendChild(ta);
   m.appendChild(block);
   const acts = el('div', 'code-actions');
   const bCopy = el('button', 'act act-copy', ICON.copy + '复制');
-  const bIns = el('button', 'act primary act-insert', ICON.insert + '插入到新单元格');
-  const bRun = el('button', 'act danger act-run', ICON.run + '插入并运行');
-  acts.append(bCopy, bIns, bRun);
+  const bIns = term ? null : el('button', 'act primary act-insert', ICON.insert + '插入到新单元格');
+  const bRun = term ? el('button', 'act danger act-run act-bash', ICON.run + '在 Notebook 里运行') : el('button', 'act danger act-run', ICON.run + '插入并运行');
+  acts.append(...[bCopy, bIns, bRun].filter(Boolean));
   m.appendChild(acts);
   const confirm = el('div', 'confirm');
   confirm.hidden = true;
-  confirm.innerHTML = '确认把这段代码插入到当前单元格下方并<strong>立即运行</strong>吗？';
+  confirm.innerHTML = term
+    ? '确认把这些命令放进一个 <code>%%bash</code> 单元格，插入到当前单元格下方并<strong>立即运行</strong>吗？'
+    : '确认把这段代码插入到当前单元格下方并<strong>立即运行</strong>吗？';
   const cActs = el('div', 'code-actions');
   const bOk = el('button', 'act danger act-confirm', ICON.run + '确认运行');
   const bNo = el('button', 'act act-cancel', '取消');
@@ -419,21 +528,23 @@ function renderBot(m, { text, code, meta, error, onRan, info }) {
   m.appendChild(confirm);
   const result = el('div', 'result');
   m.appendChild(result);
+  const btns = [bIns, bRun, bOk].filter(Boolean);
 
   const setResult = (t, err) => { result.textContent = t; result.className = 'result' + (err ? ' err' : ''); };
   bCopy.addEventListener('click', async () => {
-    try { await navigator.clipboard.writeText(ta.value); } catch { ta.select(); document.execCommand('copy'); }
+    await copyText(ta.value, ta);
     setResult('已复制');
   });
   const doInsert = async (andRun) => {
     if (!ta.value.trim()) { setResult('没有可插入的代码', true); return; }
-    for (const b of [bIns, bRun, bOk]) b.disabled = true;
+    const cellCode = term ? bashCell(ta.value) : ta.value;
+    for (const b of btns) b.disabled = true;
     try {
-      const r = await call('insertCellBelow', { code: ta.value });
+      const r = await call('insertCellBelow', { code: cellCode });
       if (/footer|末尾/.test(r.via)) r.via += '，找不到“在下方插入”，已加到 Notebook 末尾';
       if (r.notice) showNotice(r.notice);
       const intoEmpty = /^current-empty-cell/.test(r.via);
-      const where = intoEmpty ? '没法新建单元格，已写入当前选中的空单元格' : '已插入新单元格';
+      const where = intoEmpty ? '没法新建单元格，已写入当前选中的空单元格' : (term ? '已插入 %%bash 单元格' : '已插入新单元格');
       if (andRun) {
         let rr;
         try { rr = await call('runCell', {}); } catch (e) {
@@ -455,17 +566,55 @@ function renderBot(m, { text, code, meta, error, onRan, info }) {
       const writeFailed = msg.startsWith('NBAC_WRITE_FAILED:');
       if (writeFailed) msg = msg.slice('NBAC_WRITE_FAILED:'.length);
       let copied = true;
-      try { await navigator.clipboard.writeText(ta.value); } catch { try { ta.select(); copied = document.execCommand('copy'); } catch { copied = false; } }
+      try { await navigator.clipboard.writeText(cellCode); } catch { try { ta.select(); copied = document.execCommand('copy'); } catch { copied = false; } }
       setResult('插入失败：' + msg + (copied ? '。代码已复制到剪贴板，请点进 Notebook 的单元格按 Ctrl+V（Mac 上 ⌘V）粘贴' : '。请点“复制”后手动粘贴') + (andRun ? '（没有运行）' : ''), true);
       showNotice((writeFailed ? '自动写入单元格失败' : '自动插入单元格失败') + (copied ? '，代码已复制到剪贴板' : '') + '。如果一直这样，可以点“+ → 复制诊断信息”发给开发者');
     }
-    finally { for (const b of [bIns, bRun, bOk]) b.disabled = false; confirm.hidden = true; }
+    finally { for (const b of btns) b.disabled = false; confirm.hidden = true; }
   };
-  bIns.addEventListener('click', () => doInsert(false));
+  if (bIns) bIns.addEventListener('click', () => doInsert(false));
   bRun.addEventListener('click', () => { confirm.hidden = false; scrollDown(); });
   bNo.addEventListener('click', () => { confirm.hidden = true; });
   bOk.addEventListener('click', () => doInsert(true));
   scrollDown();
+}
+
+// 打开侧边栏时把保存的聊天记录画出来（按钮照常能用）
+function renderChatLog() {
+  $('messages').innerHTML = '';
+  for (const r of chatLog) {
+    if (r.role === 'user') addUser(r.text || '', r);
+    else {
+      const m = el('div', 'msg bot');
+      $('messages').appendChild(m);
+      renderBot(m, { text: r.text || '', code: r.code || '', meta: r.meta, error: r.error, info: r.info, mode: r.mode, rec: r });
+    }
+  }
+  $('welcome').hidden = chatLog.length > 0;
+  scrollDown();
+}
+
+// ---------- 模式：Notebook / 终端 / 聊天 ----------
+const PLACEHOLDERS = {
+  notebook: '需要我帮您构建什么？',
+  terminal: '想在终端里做什么？例如：下载数据集并解压',
+  chat: '有什么问题想问？例如：显存不够怎么办'
+};
+function currentMode() { return normalizeMode(settings && settings.mode); }
+function renderMode() {
+  const mode = currentMode();
+  document.querySelectorAll('.mode-btn').forEach((b) => {
+    const on = b.dataset.mode === mode;
+    b.classList.toggle('selected', on); b.setAttribute('aria-selected', on ? 'true' : 'false');
+  });
+  document.querySelectorAll('.chips[data-mode]').forEach((c) => { c.hidden = c.dataset.mode !== mode; });
+  $('prompt').placeholder = PLACEHOLDERS[mode];
+  document.body.dataset.mode = mode;
+}
+async function setMode(mode) {
+  mode = normalizeMode(mode);
+  settings.mode = mode; renderMode();
+  await saveSettings({ mode });
 }
 
 async function send(fix) {
@@ -481,8 +630,14 @@ async function send(fix) {
     else renderBot(m, { error: '没看懂这行 NBAC_HW 输出，请完整复制那一行' });
     return;
   }
+  // 「修复当前报错」修的是 Python 单元格：终端模式下也按 Notebook 模式来修；聊天模式下解释原因并给出修法
+  let mode = currentMode();
+  if (fix && mode === 'terminal') mode = 'notebook';
   busy = true; $('send').disabled = true; closeMenus(); showNotice('');
-  addUser(fix ? '修复当前报错' + (request ? '：' + request : '') : request);
+  const shown = fix ? (mode === 'chat' ? '解释当前报错' : '修复当前报错') + (request ? '：' + request : '') : request;
+  const history = llmHistory(); // 在记下这条消息之前取，避免把它自己算进去
+  const uRec = record({ role: 'user', mode, text: shown });
+  addUser(shown, uRec);
   $('prompt').value = ''; autoGrow();
   const pending = addThinking();
   try {
@@ -500,18 +655,25 @@ async function send(fix) {
       ctx.errorOutput = request; extraRequest = '';
     }
     if (fix && !ctx.errorOutput) throw new Error('没有找到报错输出。请先运行出错的单元格，并点一下选中它。');
-    const userMessage = buildUserMessage({
+    let userMessage = buildUserMessage({
       request: fix ? (extraRequest ? '（补充说明）' + extraRequest : '') : request,
       cellCode: useCtx ? ctx.cellCode : '', errorOutput: useCtx ? ctx.errorOutput : '', fix
     });
-    const r = await generate(settings, { platform: ctx.platform || (target && target.platform), hardware: pageHw, userMessage, history: history.slice(-6) });
-    const code = extractCode(r.text);
-    history.push({ role: 'user', content: userMessage }, { role: 'assistant', content: '```python\n' + code + '```' });
+    if (fix && mode === 'chat') userMessage = userMessage.replace('请修复下面这个单元格的报错，输出修好后的完整单元格。', '请解释下面这个单元格为什么报错，并说明怎么修。');
+    const r = await generate(settings, { platform: ctx.platform || (target && target.platform), hardware: pageHw, userMessage, history, mode });
+    const code = mode === 'chat' ? '' : mode === 'terminal' ? extractShell(r.text) : extractCode(r.text);
+    const llm = mode === 'chat' ? r.text : '```' + (mode === 'terminal' ? 'bash' : 'python') + '\n' + code + '```';
+    updateRecord(uRec, { llm: userMessage.slice(0, LLM_MAX) });
     const lvl = THINKING_LEVELS.find((l) => l.id === settings.thinking);
-    renderBot(pending, { text: r.text, code, meta: `${r.providerLabel} · ${r.model}` + (settings.thinking !== 'default' ? ` · 思考：${lvl.label}` : '') + (useCtx && (ctx.cellCode || ctx.errorOutput) ? ' · 已附带上下文' : '') });
+    const meta = `${r.providerLabel} · ${r.model}` + (settings.thinking !== 'default' ? ` · 思考：${lvl.label}` : '') +
+      (useCtx && (ctx.cellCode || ctx.errorOutput) ? ' · 已附带上下文' : '') + (mode !== 'notebook' ? ` · ${MODE_LABELS[mode]}模式` : '');
+    const bRec = record({ role: 'bot', mode, text: r.text, code, meta, llm: llm.slice(0, LLM_MAX) });
+    renderBot(pending, { text: r.text, code, meta, mode, rec: bRec });
     if (r.notice) showNotice(r.notice);
   } catch (e) {
-    renderBot(pending, { error: String(e.message || e) });
+    const error = String(e.message || e);
+    const bRec = record({ role: 'bot', mode, error });
+    renderBot(pending, { error, mode, rec: bRec });
   } finally {
     busy = false; $('send').disabled = false;
   }
@@ -698,6 +860,7 @@ $('prompt').addEventListener('input', autoGrow);
 $('prompt').addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(false); }
 });
+document.querySelectorAll('.mode-btn').forEach((b) => b.addEventListener('click', () => setMode(b.dataset.mode)));
 document.querySelectorAll('.chip').forEach((c) => c.addEventListener('click', () => {
   if (c.dataset.action === 'fix') return send(true);
   $('prompt').value = c.dataset.prompt; autoGrow(); $('prompt').focus();
@@ -731,7 +894,16 @@ $('modelInput').addEventListener('input', () => {
 });
 $('modelInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); chooseModel($('modelInput').value); } });
 $('modelInput').addEventListener('change', () => chooseModel($('modelInput').value));
-$('newChat').addEventListener('click', () => { history = []; $('messages').innerHTML = ''; $('welcome').hidden = false; showNotice(''); });
+// 新对话 = 清空全部聊天记录（先确认）；没有记录时直接回到欢迎页
+const askClear = () => {
+  closeMenus();
+  if (!chatLog.length) { clearChat(); return; }
+  $('clearConfirm').hidden = false;
+};
+$('newChat').addEventListener('click', (e) => { e.stopPropagation(); askClear(); });
+$('clearHistory').addEventListener('click', () => askClear());
+$('clearYes').addEventListener('click', () => clearChat());
+$('clearNo').addEventListener('click', () => { $('clearConfirm').hidden = true; });
 $('openOptions').addEventListener('click', () => chrome.runtime.openOptionsPage());
 $('closePanel').addEventListener('click', () => window.close());
 
@@ -741,4 +913,4 @@ if (!forcedTabId) {
   chrome.tabs.onUpdated.addListener(async (id, info) => { if (info.status !== 'complete') return; if ((target && id === target.tabId) || id === await activeTabId()) detect(); });
 }
 
-refreshSettings().then(detect);
+Promise.all([refreshSettings(), loadChat()]).then(() => { renderMode(); renderChatLog(); detect(); });

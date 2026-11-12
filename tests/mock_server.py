@@ -6,7 +6,8 @@ OpenAI 兼容（百炼 compatible-mode 路径 /compatible-mode/v1，DeepSeek 路
 Gemini：GET /v1beta/models、POST /v1beta/models/<m>:generateContent
 GET /last  最近一次对话请求（含完整请求体）；GET /log 所有对话请求
 GET /code/...  仿 www.kaggle.com 编辑器顶层页面（kaggle_top.html），iframe 里嵌本机 JupyterLab
-用户消息含“请修复下面这个单元格的报错”→ 返回修复后的代码，否则返回固定示例代码。"""
+用户消息含“请修复下面这个单元格的报错”→ 返回修复后的代码，否则返回固定示例代码；
+系统提示是终端模式 → 返回 ```bash 命令；聊天模式 → 返回带 HTML 字符、超过 600 字、带代码块的纯文字回答。"""
 import json, sys, pathlib
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
@@ -24,7 +25,17 @@ GEMINI_MODELS = [('gemini-3.5-flash', ['generateContent']), ('gemini-3.6-flash',
                  ('imagen-4.0-generate-001', ['predict'])]
 THINK_KEYS = ('enable_thinking', 'thinking_budget', 'reasoning_effort', 'thinking')
 
-def answer(user_text):
+BASH_CODE = '# 测试用命令\necho "NBAC_BASH $((6 * 7))"\n'
+CHAT_TEXT = ('这是聊天模式的解答：<b>NBAC_CHAT_ANSWER</b> 不应该被当成 HTML。\n\n'
+             + '第二段说明，用 `pip` 安装即可。' + '很长的解释。' * 130 + 'NBAC_CHAT_END\n\n'
+             + '```python\nprint("NBAC_CHAT_CODE")\n```\n最后一句。')
+
+def answer(user_text, system=''):
+    # 终端模式 / 聊天模式按系统提示区分；其他情况和以前一样返回 Python 单元格
+    if '终端（bash）助手' in system:
+        return '下面是命令：\n```bash\n' + BASH_CODE + '```'
+    if '问答助手' in system:
+        return CHAT_TEXT
     code = FIX_CODE if '请修复下面这个单元格的报错' in user_text else GEN_CODE
     return '下面是代码：\n```python\n' + code + '```'
 
@@ -82,7 +93,7 @@ class H(BaseHTTPRequestHandler):
                    'system': body.get('systemInstruction', {}).get('parts', [{}])[0].get('text', '')}
             LAST.clear(); LAST.update(rec); LOG.append(rec)
             return self.send(200, {'candidates': [{'content': {'role': 'model', 'parts': [
-                {'text': '思考中…', 'thought': True}, {'text': answer(user)}]}}]})
+                {'text': '思考中…', 'thought': True}, {'text': answer(user, rec['system'])}]}}]})
         if self.path.endswith('/chat/completions'):
             if not self.bearer_ok():
                 return self.send(401, {'error': {'message': 'Incorrect API key'}})
@@ -98,7 +109,7 @@ class H(BaseHTTPRequestHandler):
                 return self.send(403, {'error': {'message': 'Access denied'}})
             if model == 'no-think-model' and any(k in body for k in THINK_KEYS):
                 return self.send(400, {'error': {'message': "Unrecognized request argument supplied: enable_thinking"}})
-            return self.send(200, {'choices': [{'message': {'role': 'assistant', 'content': answer(user)}}]})
+            return self.send(200, {'choices': [{'message': {'role': 'assistant', 'content': answer(user, rec['system'])}}]})
         self.send(404, {'error': {'message': 'not found'}})
 
 if __name__ == '__main__':

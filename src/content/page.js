@@ -10,7 +10,7 @@
 (() => {
   // 扩展更新后，网页里可能还留着旧版脚本（页面世界里的脚本不会随扩展重新加载而消失）。
   // 所以按版本判断是否已加载，消息事件名也带版本号，旧脚本收不到新版的请求。BUILD 必须和 manifest 的 version 一致（单元测试会检查）
-  const BUILD = '0.1.12';
+  const BUILD = '0.1.13';
   if (window.__nbacPageBuild === BUILD) return;
   window.__nbacPageLoaded = true;
   window.__nbacPageBuild = BUILD;

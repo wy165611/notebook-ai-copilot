@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 import { PROBE_CODE, AUTO_PROBE_CODE, parseProbeOutput, mergeHardware, hardwareLabel, hardwareRule } from '../src/lib/hardware.js';
 import { MAIN_SCRIPTS, ISOLATED_SCRIPTS, classifyInjectError, originPattern, isInternalUrl } from '../src/lib/inject.js';
-import { extractCode, systemPrompt, buildUserMessage, thinkingParams, supportedThinking, filterChatModels, PRESETS, DEFAULTS } from '../src/lib/llm.js';
+import { extractCode, extractShell, bashCell, systemPrompt, buildUserMessage, thinkingParams, supportedThinking, filterChatModels, PRESETS, DEFAULTS, MODES, MODE_LABELS, normalizeMode } from '../src/lib/llm.js';
 
 assert.equal(extractCode('说明\n```python\nprint(1)\n```\n其他'), 'print(1)\n');
 assert.equal(extractCode('```\n%pip install x\n```'), '%pip install x\n');
@@ -116,7 +116,7 @@ assert.deepEqual(filterChatModels(['qwen3.8-max', 'paraformer-v2', 'qwen-tts', '
 // manifest：安睿云域名在所有内容脚本里都匹配、全部 frame 注入
 {
   const man = JSON.parse(fs.readFileSync(new URL('../manifest.json', import.meta.url), 'utf8'));
-  assert.equal(man.version, '0.1.12');
+  assert.equal(man.version, '0.1.13');
   for (const f of ['src/content/page.js', 'src/content/bridge.js', 'src/content/nb-helpers.js']) {
     const src = fs.readFileSync(new URL('../' + f, import.meta.url), 'utf8');
     const m = src.match(/const BUILD = '([^']+)'/);
@@ -233,5 +233,47 @@ assert.deepEqual(filterChatModels(['qwen3.8-max', 'paraformer-v2', 'qwen-tts', '
   assert.equal(originPattern('chrome://settings'), null);
   assert.equal(originPattern(''), null);
   assert.ok(isInternalUrl('chrome://extensions')); assert.ok(!isInternalUrl('')); assert.ok(!isInternalUrl('https://a/'));
+}
+// ---------- 三种模式：Notebook / 终端 / 聊天 ----------
+{
+  assert.deepEqual(MODES, ['notebook', 'terminal', 'chat']);
+  assert.deepEqual(MODE_LABELS, { notebook: 'Notebook', terminal: '终端', chat: '聊天' });
+  assert.equal(DEFAULTS.mode, 'notebook');
+  assert.equal(normalizeMode('chat'), 'chat'); assert.equal(normalizeMode('x'), 'notebook'); assert.equal(normalizeMode(undefined), 'notebook');
+  // Notebook 模式和以前完全一样（默认参数）
+  assert.equal(systemPrompt('Kaggle', null, 'notebook'), systemPrompt('Kaggle'));
+  assert.match(systemPrompt('Kaggle'), /```python/);
+  // 终端模式：bash 代码块、非交互、破坏性命令要警告、国内镜像、按硬件写
+  const nvHw = { vendor: 'nvidia', model: 'A10', vramGB: 22, cpuCores: 8, ramGB: 30, source: 'probe' };
+  const t = systemPrompt('ModelScope', nvHw, 'terminal');
+  assert.match(t, /终端（bash）助手/); assert.match(t, /```bash/); assert.doesNotMatch(t, /```python 代码块里/);
+  assert.match(t, /-y/); assert.match(t, /非交互/); assert.match(t, /警告/); assert.match(t, /rm -rf/);
+  assert.match(t, /pypi\.tuna\.tsinghua\.edu\.cn/); assert.match(t, /hf-mirror\.com/);
+  assert.match(t, /NVIDIA GPU（A10/); assert.match(t, /所有代码都要按上面这份实际配置来写/); assert.match(t, /%pip 一律换成 pip/);
+  assert.doesNotMatch(systemPrompt('Kaggle', null, 'terminal'), /tsinghua|hf-mirror/);
+  assert.match(systemPrompt('安睿云 JupyterLab', { vendor: 'amd', vramGB: 48, source: 'page' }, 'terminal'), /rocm-smi/);
+  // 聊天模式：问答、不要求只输出单元格、带硬件配置
+  const c = systemPrompt('飞桨 AI Studio', nvHw, 'chat');
+  assert.match(c, /问答助手/); assert.doesNotMatch(c, /只输出一个/); assert.match(c, /pypi\.tuna/); assert.match(c, /NVIDIA GPU（A10/);
+  assert.doesNotMatch(systemPrompt('Kaggle', null, 'chat'), /tsinghua/);
+  // 提取 bash 命令
+  assert.equal(extractShell('说明\n```bash\n$ pip install x -i https://pypi.tuna.tsinghua.edu.cn/simple\nnvidia-smi\n```\n完'), 'pip install x -i https://pypi.tuna.tsinghua.edu.cn/simple\nnvidia-smi\n');
+  assert.equal(extractShell('```python\nprint(1)\n```\n```sh\nls -la\n```'), 'ls -la\n', '有 python 和 sh 两个代码块时取 sh');
+  assert.equal(extractShell('```\ndf -h\n```'), 'df -h\n');
+  assert.equal(extractShell('```console\n$ free -g\n```'), 'free -g\n');
+  assert.equal(extractShell('echo hi'), 'echo hi\n');
+  assert.equal(extractShell(''), '');
+  assert.equal(bashCell('echo 1\n'), '%%bash\necho 1\n');
+  assert.equal(bashCell('%%bash\necho 1\n'), '%%bash\necho 1\n', '已经是 %%bash 的不重复加');
+  assert.equal(bashCell('%%sh\nls\n'), '%%sh\nls\n');
+}
+// 侧边栏：三个模式按钮、清空记录入口、聊天记录存储键
+{
+  const html = fs.readFileSync(new URL('../src/sidepanel/index.html', import.meta.url), 'utf8');
+  for (const [m, l] of [['notebook', 'Notebook'], ['terminal', '终端'], ['chat', '聊天']]) assert.match(html, new RegExp(`data-mode="${m}" role="tab"[^>]*>${l}</button>`));
+  assert.match(html, /id="clearHistory"/); assert.match(html, /清空全部聊天记录？/);
+  const js = fs.readFileSync(new URL('../src/sidepanel/panel.js', import.meta.url), 'utf8');
+  assert.match(js, /const CHAT_KEY = 'nbacChatHistory'/); assert.match(js, /const CHAT_MAX = 200/);
+  assert.doesNotMatch(js.slice(js.indexOf('function record('), js.indexOf('function updateRecord(')), /apiKey/, '聊天记录里不存 Key');
 }
 console.log('unit tests passed');
