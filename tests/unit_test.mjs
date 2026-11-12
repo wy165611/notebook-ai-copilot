@@ -9,6 +9,7 @@ assert.equal(extractCode('```\n%pip install x\n```'), '%pip install x\n');
 assert.equal(extractCode('print(2)'), 'print(2)\n');
 assert.match(systemPrompt('飞桨 AI Studio'), /pypi\.tuna\.tsinghua\.edu\.cn/);
 assert.match(systemPrompt('ModelScope'), /pypi\.tuna\.tsinghua\.edu\.cn/);
+assert.match(systemPrompt('安睿云 JupyterLab'), /pypi\.tuna\.tsinghua\.edu\.cn/);
 assert.doesNotMatch(systemPrompt('Kaggle'), /tsinghua/);
 const m = buildUserMessage({ request: 'r', cellCode: 'a=1', errorOutput: 'Err', fix: true });
 assert.match(m, /请修复/); assert.match(m, /a=1/); assert.match(m, /Err/);
@@ -48,6 +49,18 @@ assert.deepEqual(filterChatModels(['qwen3.8-max', 'paraformer-v2', 'qwen-tts', '
   assert.ok(!H.codeMatches(long.split('\n').slice(0, 5).join('\n'), long), '只渲染 5 行不够判断');
   assert.equal(H.joinViewLines([{ top: '19px', text: 'b\u00a0=\u00a02' }, { top: '0px', text: 'a = 1' }]), 'a = 1\nb = 2');
   assert.equal(H.joinViewLines([{ text: 'a' }, { text: 'b' }]), 'a\nb');
+  // 平台识别
+  assert.equal(H.platformFromHost('jupyter.anruicloud.com'), '安睿云 JupyterLab');
+  assert.equal(H.platformFromHost('JUPYTER.AnruiCloud.com'), '安睿云 JupyterLab');
+  assert.equal(H.platformFromHost('anruicloud.com'), '安睿云 JupyterLab');
+  assert.equal(H.platformFromHost('jupyter.anruicloud.test'), '安睿云 JupyterLab');
+  assert.equal(H.platformFromHost('anruicloud.com.evil.example'), 'Jupyter', '只认真正的 anruicloud.com 域名');
+  assert.equal(H.platformFromHost('notanruicloud.com'), 'Jupyter');
+  assert.equal(H.platformFromHost('aistudio.baidu.com'), '飞桨 AI Studio');
+  assert.equal(H.platformFromHost('modelscope.cn'), 'ModelScope');
+  assert.equal(H.platformFromHost('dsw-gateway-cn-hangzhou.data.aliyun.com'), 'ModelScope');
+  assert.equal(H.platformFromHost('kkb-production.jupyter-proxy.kaggle.net'), 'Kaggle');
+  assert.equal(H.platformFromHost('127.0.0.1'), 'Jupyter');
   const ms = (o) => H.vscodeKernelHint({ hasButton: true, label: '', pageText: '', ...o });
   assert.match(ms({ label: '/usr/bin/python3 Python 3.10.12' }), /\/usr\/local\/bin\/python/);
   assert.match(ms({ label: '/bin/python3' }), /ipykernel/);
@@ -81,4 +94,21 @@ assert.deepEqual(filterChatModels(['qwen3.8-max', 'paraformer-v2', 'qwen-tts', '
   assert.equal(calls.length, 5, '原来的 addEventListener 照常被调用');
 }
 
+// manifest：安睿云域名在所有内容脚本里都匹配、全部 frame 注入
+{
+  const man = JSON.parse(fs.readFileSync(new URL('../manifest.json', import.meta.url), 'utf8'));
+  assert.equal(man.version, '0.1.2');
+  const files = man.content_scripts.flatMap((c) => c.js);
+  for (const f of ['src/content/early.js', 'src/content/nb-helpers.js', 'src/content/page.js', 'src/content/bridge.js']) assert.ok(files.includes(f), f);
+  for (const cs of man.content_scripts) {
+    assert.ok(cs.matches.includes('https://*.anruicloud.com/*'), cs.js.join(','));
+    assert.equal(cs.all_frames, true);
+  }
+  // Chrome 的匹配规则 https://*.anruicloud.com/* 覆盖 jupyter.anruicloud.com 的任意路径
+  const toRe = (p) => new RegExp('^' + p.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace('://\\*\\.', '://([^/]+\\.)?').replace(/\*/g, '.*') + '$');
+  const re = toRe('https://*.anruicloud.com/*');
+  assert.ok(re.test('https://jupyter.anruicloud.com/instances/rgapi-one-click-31516-7e36ddc9/lab'));
+  assert.ok(re.test('https://jupyter.anruicloud.com/instances/x/lab/tree/a/b.ipynb'));
+  assert.ok(!re.test('https://jupyter.anruicloud.com.evil.example/lab'));
+}
 console.log('unit tests passed');

@@ -44,7 +44,7 @@ def make_notebook(root):
     }
     (root / 'test.ipynb').write_text(json.dumps(nb))
 
-def start_lab(port, expose, frameable=False, base_url=None, zh=False):
+def start_lab(port, expose, frameable=False, base_url=None, zh=False, remote=False):
     root = pathlib.Path(tempfile.mkdtemp(prefix=f'nbac-lab-{port}-'))
     make_notebook(root)
     args = [PY, '-m', 'jupyterlab', '--no-browser', f'--port={port}', '--ip=127.0.0.1',
@@ -58,6 +58,9 @@ def start_lab(port, expose, frameable=False, base_url=None, zh=False):
                  '--ServerApp.tornado_settings={"headers": {"Content-Security-Policy": "frame-ancestors *"}}']
     if base_url:
         args.append(f'--ServerApp.base_url={base_url}')
+    if remote:
+        # 接受仿安睿云的 Host 头（jupyter.anruicloud.test）
+        args.append('--ServerApp.allow_remote_access=True')
     if zh:
         # 中文界面（需要 jupyterlab-language-pack-zh-CN），模拟 AI Studio 的中文 JupyterLab
         sd = pathlib.Path(tempfile.mkdtemp(prefix='nbac-labsettings-'))
@@ -722,7 +725,7 @@ def test_modelscope(ctx, sw):
     text = json.dumps(data, ensure_ascii=False)
     wb = [f for f in data['frames'] if '/notebook/main.html' in (f.get('url') or '')]
     check('[diag] 诊断信息包含所有 frame（外层页面、notebook-ide、extensionHost），标出适配器和关键选择器数量',
-          len(data['frames']) >= 3 and wb and wb[0]['adapter'] == 'vscode-notebook' and wb[0]['counts']['.native-edit-context'] >= 3 and data['version'] == '0.1.1', text[:300])
+          len(data['frames']) >= 3 and wb and wb[0]['adapter'] == 'vscode-notebook' and wb[0]['counts']['.native-edit-context'] >= 3 and data['version'] == json.loads((HERE.parent / 'manifest.json').read_text())['version'], text[:300])
     check('[diag] ModelScope 列出候选动作按钮（tag/class/aria-label/title/文字）', wb and any(a.get('aria') == 'Add Markdown Cell' for a in wb[0].get('actions', [])) and len(wb[0].get('actions', [])) <= 60, json.dumps(wb[0].get('actions', [])[:3], ensure_ascii=False) if wb else '')
     check('[diag] 诊断信息不含代码、输出和 API Key', 'y = 1/0' not in text and 'NBAC_OK' not in text and 'print(' not in text and KEY not in text)
     check('[diag] 点按钮后提示已复制到剪贴板（或显示在框里手动复制）', '诊断信息已复制' in panel.inner_text('#notice') or panel.is_visible('#diagOutput'), panel.inner_text('#notice'))
@@ -739,6 +742,58 @@ def test_modelscope(ctx, sw):
     panel.wait_for_selector('#status.bad', timeout=15000)
     st = panel.inner_text('#status')
     check('[ms] 在“我的 Notebook”列表页提示先启动实例并点「查看」', '查看' in st, st)
+    panel.close(); page.close()
+
+ANRUI_BASE = '/instances/rgapi-one-click-test-0001/'
+ANRUI = 'http://jupyter.anruicloud.test:8903'
+
+def test_anrui(ctx, sw):
+    """安睿云自建 JupyterLab：https://jupyter.anruicloud.com/instances/<实例>/lab，顶层页面就是 JupyterLab（不是 iframe），
+    没有暴露 window.jupyterapp。本地用真实 JupyterLab 4 + 同样的 base_url，域名 jupyter.anruicloud.test 指向本机。"""
+    print('\n=== 安睿云 JupyterLab（/instances/<id>/lab，顶层页面） ===', flush=True)
+    page = ctx.new_page()
+    page.set_viewport_size({'width': 1100, 'height': 900})
+    # 1) /instances/<id>/lab：启动器（还没打开 Notebook）→ 提示打开 .ipynb
+    page.goto(ANRUI + ANRUI_BASE + 'lab?reset')
+    page.wait_for_selector('#jp-main-dock-panel .jp-Launcher', timeout=60000)
+    panel = open_panel(ctx, sw, ANRUI + '/instances/*')
+    set_storage(panel, providers=mock_providers(), active='bailian', thinking='default', includeContext=True)
+    panel.wait_for_selector('#status.bad', timeout=15000)
+    st = panel.inner_text('#status')
+    check('[anrui] /instances/<id>/lab 启动器页面：提示打开或新建 Notebook', '安睿云 JupyterLab' in st and '.ipynb' in st, st)
+    # 2) 打开 Notebook（/instances/<id>/lab/tree/test.ipynb），侧边栏自动重新检测
+    page.goto(ANRUI + ANRUI_BASE + 'lab/tree/test.ipynb')
+    page.wait_for_selector('.jp-Notebook .jp-Cell .cm-content', timeout=60000)
+    time.sleep(3)
+    cells = lambda: page.query_selector_all('.jp-Notebook .jp-Cell .cm-content')
+    cells()[0].click(); page.keyboard.press('Shift+Enter')
+    page.wait_for_function("() => [...document.querySelectorAll('.jp-OutputArea-output')].some(e => e.innerText.includes('42'))", timeout=60000)
+    cells()[1].click(); page.keyboard.press('Shift+Enter')
+    page.wait_for_function("() => document.body.innerText.includes('ZeroDivisionError')", timeout=30000)
+    cells()[1].click()
+    panel.click('#plusBtn'); panel.click('#refresh')
+    status = wait_status_ok(panel)
+    check('[anrui] 识别为「安睿云 JupyterLab」，顶层页面，走 JupyterLab 模型', '安睿云 JupyterLab（jupyterlab，JupyterLab 模型，主页面）' in status, status)
+    check('[anrui] 页面没有暴露 window.jupyterapp', page.evaluate("() => !window.jupyterapp && !window.jupyterlab"))
+    code, _, _ = ask(panel, '读一个 csv 并画图')
+    L = last()
+    check('[anrui] 读到当前单元格代码和报错', 'y = 1/0' in L.get('user', '') and 'ZeroDivisionError' in L.get('user', ''))
+    check('[anrui] 系统提示带平台名和清华镜像（国内云）', 'pypi.tuna.tsinghua.edu.cn' in L.get('system', '') and '安睿云 JupyterLab' in L.get('system', ''), L.get('system', '')[:80])
+    msg = last_bot(panel)
+    n0 = lab_cell_count(page)
+    r = click_and_wait_result(panel, msg, '.act-insert')
+    check('[anrui] 插入新单元格（直接写 JupyterLab 模型）', lab_cell_count(page) == n0 + 1 and (lab_active_cell_text(page) or '').strip() == code.strip() and 'jupyterlab-model' in r, r)
+    msg.query_selector('.act-run').click()
+    check('[anrui] 运行前要确认', msg.query_selector('.confirm').is_visible())
+    r = click_and_wait_result(panel, msg, '.act-confirm')
+    check('[anrui] 确认后插入并运行，输出 NBAC_OK 42 True', wait_text(page, 'NBAC_OK 42 True'), r)
+    cells()[1].click()
+    code, _, _ = ask(panel, fix=True)
+    msg = last_bot(panel)
+    msg.query_selector('.act-run').click()
+    r = click_and_wait_result(panel, msg, '.act-confirm')
+    check('[anrui] 修复报错后运行成功（NBAC_FIXED 1.0）', 'NBAC_FIXED' in code and wait_text(page, 'NBAC_FIXED 1.0'), r)
+    page.screenshot(path=str(SHOT_DIR / 'anrui-notebook.png'))
     panel.close(); page.close()
 
 def test_options(ctx, sw):
@@ -796,6 +851,7 @@ def main():
             start_lab(8902, False, base_url='/bj-cpu-01/user/123/456/', zh=True)]
     labs.append(subprocess.Popen([PY, str(HERE / 'aistudio_proxy.py'), '8770', '8902']))
     labs.append(subprocess.Popen([PY, str(HERE / 'modelscope_server.py'), '8771']))
+    labs.append(start_lab(8903, False, base_url=ANRUI_BASE, remote=True))
     try:
         wait_http(MOCK + '/last')
         wait_http('http://127.0.0.1:8770/bj-cpu-01/user/123/456/home')
@@ -806,12 +862,12 @@ def main():
                 f'--disable-extensions-except={ext}', f'--load-extension={ext}',
                 '--disable-background-timer-throttling', '--disable-renderer-backgrounding',
                 '--disable-backgrounding-occluded-windows', '--window-size=1100,1000', '--window-position=0,0',
-                '--host-resolver-rules=MAP *.kaggle.test 127.0.0.1, MAP *.kagglenet.test 127.0.0.1, MAP aistudio.baidu.test 127.0.0.1, MAP modelscope.test 127.0.0.1, MAP g.alicdn.test 127.0.0.1'])
+                '--host-resolver-rules=MAP *.kaggle.test 127.0.0.1, MAP *.kagglenet.test 127.0.0.1, MAP aistudio.baidu.test 127.0.0.1, MAP modelscope.test 127.0.0.1, MAP g.alicdn.test 127.0.0.1, MAP *.anruicloud.test 127.0.0.1'])
             sw = ctx.service_workers[0] if ctx.service_workers else ctx.wait_for_event('serviceworker')
             for t in (test_options, test_models_and_thinking,
                       lambda c, s: test_jupyterlab(c, s, 8899, 'dom'),
                       lambda c, s: test_jupyterlab(c, s, 8900, 'app'),
-                      test_kaggle, test_aistudio, test_aistudio_monaco, test_aistudio_outer, test_modelscope, screenshot_demo):
+                      test_kaggle, test_aistudio, test_aistudio_monaco, test_aistudio_outer, test_modelscope, test_anrui, screenshot_demo):
                 try:
                     t(ctx, sw)
                 except Exception as e:

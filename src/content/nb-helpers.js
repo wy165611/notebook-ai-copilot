@@ -37,5 +37,15 @@
     return '';
   }
 
-  root.__nbacHelpers = { normCode, codeMatches, joinViewLines, vscodeKernelHint };
+  // 按域名识别平台（只会在 manifest 匹配的网站上运行）。*.test 是本地测试用的假域名
+  function platformFromHost(hostname) {
+    const h = String(hostname || '').toLowerCase();
+    if (/(^|\.)aistudio\.baidu\.(com|test)$/.test(h)) return '飞桨 AI Studio';
+    if (/(^|\.)modelscope\.(cn|test)$/.test(h) || /(^|\.)data\.aliyun\.com$/.test(h)) return 'ModelScope';
+    if (/(^|\.)anruicloud\.(com|test)$/.test(h)) return '安睿云 JupyterLab';
+    if (/kaggle/.test(h)) return 'Kaggle';
+    return 'Jupyter';
+  }
+
+  root.__nbacHelpers = { normCode, codeMatches, joinViewLines, vscodeKernelHint, platformFromHost };
 })();

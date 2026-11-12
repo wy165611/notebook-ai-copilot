@@ -802,13 +802,10 @@
   };
 
   function platformName() {
-    const h = location.hostname;
-    if (/(^|\.)aistudio\.baidu\.(com|test)$/.test(h)) return '飞桨 AI Studio';
-    if (/(^|\.)modelscope\.(cn|test)$/.test(h) || /data\.aliyun\.com$/.test(h)) return 'ModelScope';
-    if (/kaggle/.test(h)) return 'Kaggle';
     if (window.__nbacForceKaggle) return 'Kaggle';
-    return 'Jupyter';
+    return H.platformFromHost(location.hostname);
   }
+
 
   function pickAdapter() {
     if (jupyterLab.detect()) return jupyterLab;
@@ -870,6 +867,10 @@
         // 飞桨 AI Studio 外层的项目编辑器（/project/edit/…）不是 JupyterLab，提示进入 BML Codelab
         if (r.platform === '飞桨 AI Studio' && window.top === window && /\/project\/(edit|detail)\//.test(location.pathname)) {
           r.hint = '这是 AI Studio 外层的项目编辑器，暂不支持。请点击「专业开发」打开 BML Codelab 后使用';
+        }
+        // JupyterLab 界面已经加载，但当前标签页不是 Notebook（启动器、文件浏览器、终端等）
+        if (!r.hint && (document.getElementById('jp-main-dock-panel') || document.querySelector('.jp-LabShell'))) {
+          r.hint = (r.platform === 'Jupyter' ? 'JupyterLab' : r.platform) + ' 已打开，但当前没有打开 Notebook：请在左侧文件浏览器里双击一个 .ipynb，或在启动器里新建 Notebook（Python 3）';
         }
         if (r.platform === 'ModelScope' && document.querySelector('.monaco-workbench')) {
           r.hint = 'ModelScope Code Editor 里还没打开 Notebook：请打开或新建一个 .ipynb 文件（File → New File… → Jupyter Notebook）';

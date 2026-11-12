@@ -1,6 +1,6 @@
 # Notebook AI Copilot
 
-一个 Chrome 扩展（Manifest V3）：在 **飞桨 AI Studio**、**ModelScope（魔搭）**、**Kaggle** 的网页 Notebook 里，用**你自己的 API Key** 调大模型写代码。默认用 **阿里云百炼 + DeepSeek-V4.1-Flash**，也支持 DeepSeek 官方、Google Gemini 和任意 OpenAI 兼容接口。
+一个 Chrome 扩展（Manifest V3）：在 **飞桨 AI Studio**、**ModelScope（魔搭）**、**Kaggle**、**安睿云 JupyterLab** 的网页 Notebook 里，用**你自己的 API Key** 调大模型写代码。默认用 **阿里云百炼 + DeepSeek-V4.1-Flash**，也支持 DeepSeek 官方、Google Gemini 和任意 OpenAI 兼容接口。
 
 > 生成的代码**先给你看**；你点“插入到新单元格”才会写进 Notebook；点“插入并运行”还要再**确认一次**才会运行。没有确认，什么都不会执行。
 
@@ -67,6 +67,7 @@ Chrome 偶尔会提示“停用开发者模式扩展”，点关闭即可。
 | 飞桨 AI Studio（BML Codelab，基于 JupyterLab） | `aistudio.baidu.com`、`*.aistudio.baidu.com` | `#jupyterlab-frame` iframe 里的 JupyterLab 走 JupyterLab 适配器（支持 Monaco 编辑器）；外层项目编辑器不支持，见下文 |
 | ModelScope Notebook | `modelscope.cn`、`*.modelscope.cn`、`*.data.aliyun.com`（如 `dsw-gateway-cn-hangzhou.data.aliyun.com/dsw-xxxx/lab`） | 免费 CPU 实例的 Code Editor（VS Code 网页版）走 **VS Code Notebook 适配器**；打开的是 JupyterLab 时走 JupyterLab 适配器 |
 | Kaggle（`www.kaggle.com/code/.../edit`） | `www.kaggle.com`、`*.kaggleusercontent.com`、`*.kaggle.net`（单元格所在的 `kkb-production.jupyter-proxy.kaggle.net` iframe） | iframe 里的 JupyterLab 4 走 JupyterLab 适配器；顶层 kaggle.com 页面没有单元格，会回报“不是 Notebook” |
+| 安睿云 JupyterLab（`jupyter.anruicloud.com/instances/<实例>/lab`） | `*.anruicloud.com`（包括 `jupyter.anruicloud.com` 的任意路径，如 `/instances/<实例>/lab`、`/instances/<实例>/lab/tree/…`） | 顶层页面就是标准 JupyterLab，走 JupyterLab 适配器（直接写单元格模型）；侧边栏显示「安睿云 JupyterLab」 |
 
 内容脚本在所有 iframe 里都会运行（`all_frames`）。检测时每个 frame 都会回报自己是不是 Notebook，侧边栏按 `frameId` 选出真正有单元格的那个 frame（JupyterLab 优先、单元格多的优先），之后的读取、插入、运行都只发给这个 frame。Notebook 晚加载时，侧边栏会每 3 秒自动重试检测（最多约 1 分钟）。
 
@@ -99,6 +100,12 @@ Chrome 偶尔会提示“停用开发者模式扩展”，点关闭即可。
 - 报错：VS Code 把输出画在单独的跨域 webview 里，扩展通常**读不到输出文字**。这时“修复当前报错”会提示你把报错复制到输入框里，再点“修复当前报错”，贴进来的内容会当作报错发给模型。
 - 内核：实测 `/usr/bin/python3`（Python 3.10.12）没有 ipykernel，运行会报 “requires the ipykernel package”，也装不了 pip。检测到这种内核或这条报错时，侧边栏会提示：点 Notebook 右上角的内核名，改选 `/usr/local/bin/python`（Python 3.11）。
 - **注意**：这些只对照抓下来的真实 DOM，在本机仿造的页面（真实 monaco-editor + EditContext，运行是假的）上测过，**没有在真实 ModelScope 页面里装上扩展跑过**。
+
+**安睿云 JupyterLab**（0.1.2 起）：
+- 打开 `https://jupyter.anruicloud.com/instances/<实例>/lab`，在左侧双击一个 `.ipynb`（或在启动器里新建 Notebook）后打开侧边栏即可。只停在启动器/文件浏览器时，侧边栏会提示先打开 Notebook；打开后会自动重新检测（也可以点“+ → 重新检测 Notebook”）。
+- 页面没有暴露 `window.jupyterapp`，扩展通过 JupyterLab 单元格模型插入和写代码（见上面 JupyterLab 适配器第 2 条），运行用 `NotebookActions.run` 或工具栏按钮 / Shift+Enter。
+- 这是国内云，系统提示里会让 pip 加清华镜像。
+- 只在本机仿造的同样路径（`/instances/<id>/lab`，真实 JupyterLab 4，不暴露 app）上测过；真实站点需要登录（未登录访问返回 403），**没有在真实安睿云页面上装上扩展跑过**。如果不行，请用“+ → 复制诊断信息”。
 
 **Kaggle**（2026-11 对照真实已登录 Kaggle Notebook 的 DOM 结构核对过）：
 - 顶层 `www.kaggle.com` 是 Kaggle 自己的 React/MUI 页面（工具栏有 Add cell、Run current cell、Run All 等），**没有单元格**；

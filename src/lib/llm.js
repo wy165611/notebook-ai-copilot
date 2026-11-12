@@ -123,7 +123,7 @@ export function thinkingParams(providerId, model, level) {
 
 // ---------- 提示词 ----------
 export function systemPrompt(platform) {
-  const china = /AI Studio|ModelScope/.test(platform || '');
+  const china = /AI Studio|ModelScope|安睿云/.test(platform || '');
   return [
     `你是运行在 ${platform || 'Jupyter'} Notebook 里的编程助手。`,
     '规则：',
