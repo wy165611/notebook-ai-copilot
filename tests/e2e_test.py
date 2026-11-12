@@ -631,7 +631,7 @@ def test_modelscope_autoprobe(ctx, sw):
     check('[ms-auto] 连接后自动插入检测单元格（带 replace=True 写回结果）', idx is not None, str(idx))
     if idx is not None:
         time.sleep(4)  # 等插入校验和运行完成，再模拟内核写回
-        fr.evaluate("(i) => window.__fixtureCells.find(c => +c.row.dataset.index === i).ed.setValue('# 硬件检测结果\\n# NBAC_HW {\"vendor\":\"nvidia\",\"devices\":[{\"name\":\"NVIDIA A10\",\"vram_gb\":22.0}],\"cpu_count\":8,\"ram_gb\":30.0,\"torch\":\"2.3\"}')", idx)
+        fr.evaluate("(i) => window.__fixtureCells.find(c => +c.row.dataset.index === i).ed.setValue('    # 硬件检测结果\\n    # NBAC_HW {\"vendor\":\"nvidia\",\"devices\":[{\"name\":\"NVIDIA A10\",\"vram_gb\":22.0}],\"cpu_count\":8,\"ram_gb\":30.0,\"torch\":\"2.3\"}')", idx)
     ok = False
     for _ in range(40):
         hw = panel.inner_text('#hw')

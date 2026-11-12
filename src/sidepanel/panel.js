@@ -115,7 +115,7 @@ function showHw(hw) {
   const e = $('hw');
   if (!target) { e.hidden = true; return; }
   e.hidden = false;
-  e.textContent = '硬件：' + hardwareLabel(hw);
+  e.textContent = '硬件：' + hardwareLabel(hw) + (probeFail && !(hw && hw.source === 'probe') && !(hw && hw.cpuCores) ? '（自动检测没成功：' + probeFail + '，可以点「+ → 检测硬件」）' : '');
   e.title = hw && hw.evidence ? '依据：' + hw.evidence : (hw && hw.source === 'probe' ? '来自“检测硬件”单元格的输出' : '“+ → 检测硬件”可以在 Notebook 里运行一段只读的检测代码');
 }
 
@@ -544,6 +544,7 @@ function probeHardware() {
 // VS Code 网页版 Notebook（ModelScope）：网页里没有内核接口，只能插入一个只读检测单元格并运行；每个网页 12 小时内最多一次
 const HW_TRIED_KEY = 'nbacHwAutoTried2'; // 0.1.9 改了读取方式，换个键让旧的“已试过”记录失效
 let autoProbing = false;
+let probeFail = ''; // 自动检测没成功的原因，显示在硬件那一行
 async function autoProbe(t) {
   if (!t || t !== target || autoProbing || !hwKey) return;
   if ((await savedProbe(hwKey))) return;
@@ -551,15 +552,35 @@ async function autoProbe(t) {
   autoProbing = true;
   try {
     if (t.kind === 'jupyterlab') {
-      let r = null;
-      try {
-        r = await withTimeout(chrome.tabs.sendMessage(t.tabId, { type: 'nbac', action: 'kernelProbe', args: { code: PROBE_CODE, timeoutMs: 40000 }, timeoutMs: 45000 }, { frameId: t.frameId }), 47000);
-      } catch { return; }
-      const hw = r && r.ok && r.result && r.result.output ? parseProbeOutput(r.result.output) : null;
-      if (hw && target === t && hwKey === key) await storeProbe(hw);
+      probeFail = '';
+      // 内核可能还在启动：没连上就隔几秒再试；ROCm 版 torch 导入很慢，单次最多等 2 分钟
+      let reason = '';
+      for (let i = 0; i < 6; i++) {
+        let r = null;
+        try {
+          r = await withTimeout(chrome.tabs.sendMessage(t.tabId, { type: 'nbac', action: 'kernelProbe', args: { code: PROBE_CODE, timeoutMs: 120000 }, timeoutMs: 125000 }, { frameId: t.frameId }), 127000);
+        } catch (e) { reason = '没有响应（' + String(e && e.message || e).slice(0, 60) + '）'; break; }
+        if (target !== t || hwKey !== key) return;
+        const res = r && r.ok !== false ? (r.result !== undefined ? r.result : r) : null;
+        const hw = res && res.output ? parseProbeOutput(res.output) : null;
+        if (hw) { probeFail = ''; await storeProbe(hw); return; }
+        reason = !r || r.ok === false ? '出错：' + String(r && r.error || '无返回').slice(0, 80)
+          : res.unavailable ? (res.unavailable === 'no-kernel' ? '还没连上内核' : '内核状态 ' + res.unavailable.replace(/^kernel-/, ''))
+          : res.busy ? '内核正忙' : '2 分钟内没有输出结果';
+        if (!(res && (res.unavailable || res.busy))) break;
+        await new Promise((ok) => setTimeout(ok, 5000));
+      }
+      probeFail = reason;
+      showHw(pageHw);
       return;
     }
     if (t.kind === 'vscode-notebook') {
+      // 之前的检测单元格已经把结果写回单元格了：直接读
+      try {
+        const r0 = await call('readHardwareProbe', {});
+        const hw0 = r0 && r0.line ? parseProbeOutput(r0.line) : null;
+        if (hw0) { await storeProbe(hw0); return; }
+      } catch { /* ignore */ }
       const tried = (await chrome.storage.local.get(HW_TRIED_KEY))[HW_TRIED_KEY] || {};
       if (tried[key] && Date.now() - tried[key] < 12 * 3600 * 1000) return;
       tried[key] = Date.now();
@@ -606,7 +627,7 @@ async function copyDiagnostics() {
     userAgent: navigator.userAgent, tabUrl: tab && tab.url ? tab.url.split(/[?#]/)[0] : null,
     target: target ? { frameId: target.frameId, platform: target.platform, kind: target.kind } : null,
     status: $('status').textContent.slice(0, 200), lastPanelError,
-    hardware: pageHw, inject: tabId ? injectState.get(tabId) || null : null,
+    hardware: pageHw, probeFail: probeFail || null, inject: tabId ? injectState.get(tabId) || null : null,
     permissions: await chrome.permissions.getAll().then((p) => ({ permissions: p.permissions, origins: p.origins })).catch((e) => String(e)),
     registeredScripts: await chrome.scripting.getRegisteredContentScripts().then((l) => l.map((x) => ({ id: x.id, matches: x.matches }))).catch(() => null),
     frames: reports.sort((a, b) => a.frameId - b.frameId).map((r) => ({ frameId: r.frameId, ...r.frame }))

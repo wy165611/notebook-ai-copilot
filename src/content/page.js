@@ -10,7 +10,7 @@
 (() => {
   // 扩展更新后，网页里可能还留着旧版脚本（页面世界里的脚本不会随扩展重新加载而消失）。
   // 所以按版本判断是否已加载，消息事件名也带版本号，旧脚本收不到新版的请求。BUILD 必须和 manifest 的 version 一致（单元测试会检查）
-  const BUILD = '0.1.9';
+  const BUILD = '0.1.10';
   if (window.__nbacPageBuild === BUILD) return;
   window.__nbacPageLoaded = true;
   window.__nbacPageBuild = BUILD;
@@ -878,8 +878,8 @@
       for (const row of vscodeNotebook.rows()) {
         const m = vscodeNotebook.monacoOf(row);
         const t = m ? monacoViewText(m).replace(/\u00a0/g, ' ') : '';
-        const hit = t.match(/^#\s*NBAC_HW\s*\{[^\n]*\}/m);
-        if (hit) found = hit[0].replace(/^#\s*/, '');
+        const hit = t.match(/^\s*#\s*NBAC_HW\s*\{[^\n]*\}/m);
+        if (hit) found = hit[0].replace(/^\s*#\s*/, '');
       }
     }
     return { line: found, unreadable: !found && !!vscodeNotebook.detect() && vscodeNotebook.outputUnreadable() };
@@ -1003,7 +1003,7 @@
         const t = msg && msg.header && msg.header.msg_type;
         if (t === 'stream' && msg.content && msg.content.text) out += msg.content.text;
       };
-      const limit = Math.min(Number(timeoutMs) || 30000, 60000);
+      const limit = Math.min(Number(timeoutMs) || 30000, 150000);
       await Promise.race([Promise.resolve(future.done).catch(() => {}), new Promise((r) => setTimeout(r, limit))]);
       const m = out.match(/NBAC_HW\s*\{[^\n]*\}/g);
       return { output: m ? m[m.length - 1] : '', busy: !m && /busy/.test(String(kernel.status || '')) };

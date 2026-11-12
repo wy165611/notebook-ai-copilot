@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Notebook AI Copilot",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "description": "在飞桨 AI Studio、ModelScope、Kaggle、安睿云 JupyterLab 等的 Notebook 中用你自己的 API Key（阿里云百炼 / DeepSeek / Gemini / OpenAI 兼容）生成代码，确认后再插入与运行。",
   "default_locale": "zh_CN",
   "icons": {
