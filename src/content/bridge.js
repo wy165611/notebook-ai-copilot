@@ -1,11 +1,11 @@
 // 隔离世界的内容脚本：在扩展（侧边栏）和页面世界脚本 page.js 之间转发消息。
-// 每个 frame 都会运行一份；只有检测到 Notebook 的 frame 才会回复，
-// 后续请求带上 frameToken，保证只由同一个 frame 执行。
+// 每个 frame 都会运行一份（all_frames）。检测时每个 frame 都通过 runtime 消息
+// 回报自己的结果（含“不是 Notebook”），侧边栏根据 sender.frameId 选出真正有
+// Notebook 的那个 frame，之后的操作都用 {frameId} 只发给它。
 (() => {
   if (window.__nbacBridgeLoaded) return;
   window.__nbacBridgeLoaded = true;
 
-  const frameToken = Math.random().toString(36).slice(2) + Date.now().toString(36);
   let seq = 0;
   const pending = new Map();
 
@@ -23,7 +23,7 @@
       const id = 'r' + (++seq);
       const timer = setTimeout(() => {
         pending.delete(id);
-        resolve({ ok: false, error: 'timeout' });
+        resolve({ ok: false, error: 'timeout（页面脚本没有响应）' });
       }, timeoutMs);
       pending.set(id, (d) => { clearTimeout(timer); resolve(d); });
       document.dispatchEvent(new CustomEvent('nbac-request', {
@@ -36,14 +36,14 @@
     if (!msg || msg.type !== 'nbac') return false;
     if (msg.action === 'detect') {
       callPage('detect', {}, 3000).then((r) => {
-        if (r && r.ok && r.result && r.result.detected) {
-          sendResponse({ ok: true, frameToken, url: location.href, ...r.result });
-        }
-        // 未检测到：不回复，让其他 frame 回复
+        const res = (r && r.ok && r.result) || { detected: false, error: r && r.error };
+        chrome.runtime.sendMessage({
+          type: 'nbac-detected', reqId: msg.reqId, url: location.href, top: window.top === window, ...res
+        }).catch(() => {});
       });
-      return true;
+      sendResponse({ ack: true });
+      return false;
     }
-    if (msg.frameToken !== frameToken) return false;
     callPage(msg.action, msg.args, msg.timeoutMs || 15000).then(sendResponse);
     return true;
   });

@@ -45,7 +45,8 @@
         "https://*.modelscope.cn/*",
         "https://*.data.aliyun.com/*",
         "https://www.kaggle.com/*",
-        "https://*.kaggleusercontent.com/*"
+        "https://*.kaggleusercontent.com/*",
+        "https://*.kaggle.net/*"
       ],
       "js": [
         "src/content/page.js"
@@ -62,7 +63,8 @@
         "https://*.modelscope.cn/*",
         "https://*.data.aliyun.com/*",
         "https://www.kaggle.com/*",
-        "https://*.kaggleusercontent.com/*"
+        "https://*.kaggleusercontent.com/*",
+        "https://*.kaggle.net/*"
       ],
       "js": [
         "src/content/bridge.js"

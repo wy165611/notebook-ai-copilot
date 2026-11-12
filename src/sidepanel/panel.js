@@ -8,7 +8,7 @@ const params = new URLSearchParams(location.search);
 // 测试用：?tabId=123 可以把面板当普通页面打开并指定目标标签页
 const forcedTabId = params.has('tabId') ? Number(params.get('tabId')) : null;
 
-let target = null; // {tabId, frameToken, platform, kind}
+let target = null; // {tabId, frameId, platform, kind}
 let busy = false;
 let history = []; // [{role, content}]
 let settings = null;
@@ -29,29 +29,62 @@ async function activeTabId() {
 }
 function withTimeout(p, ms) { return Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), ms))]); }
 
-async function detect() {
+const KIND_RANK = { jupyterlab: 3, 'classic-notebook': 2, 'kaggle-dom': 1 };
+let detectRetry = null;
+
+// 向标签页里所有 frame 广播检测请求，收集各 frame 的回报（sender.frameId），选出真正有 Notebook 的 frame
+async function collectReports(tabId, waitMs = 900) {
+  const reqId = Math.random().toString(36).slice(2);
+  const reports = [];
+  const listener = (msg, sender) => {
+    if (!msg || msg.type !== 'nbac-detected' || msg.reqId !== reqId) return;
+    if (!sender.tab || sender.tab.id !== tabId) return;
+    reports.push({ ...msg, frameId: sender.frameId });
+  };
+  chrome.runtime.onMessage.addListener(listener);
+  try {
+    await withTimeout(chrome.tabs.sendMessage(tabId, { type: 'nbac', action: 'detect', reqId }), 3000);
+  } catch { /* 页面上没有内容脚本 */ }
+  await new Promise((r) => setTimeout(r, waitMs));
+  chrome.runtime.onMessage.removeListener(listener);
+  return reports;
+}
+
+function pickReport(reports) {
+  const ok = reports.filter((r) => r.detected);
+  ok.sort((x, y) => (KIND_RANK[y.kind] || 0) - (KIND_RANK[x.kind] || 0) || (y.cellCount || 0) - (x.cellCount || 0) || (x.top ? 1 : 0) - (y.top ? 1 : 0));
+  return ok[0] || null;
+}
+
+async function detect(attempt = 0) {
+  clearTimeout(detectRetry);
   target = null;
-  setStatus('正在检测当前页面的 Notebook…');
+  if (!attempt) setStatus('正在检测当前页面的 Notebook…');
   const tabId = await activeTabId();
   if (!tabId) { setStatus('没有找到当前标签页', 'bad'); return null; }
-  try {
-    const r = await withTimeout(chrome.tabs.sendMessage(tabId, { type: 'nbac', action: 'detect' }), 4000);
-    if (r && r.ok) {
-      target = { tabId, frameToken: r.frameToken, platform: r.platform, kind: r.kind };
-      setStatus(`已连接：${r.platform}（${r.kind}${r.viaApp ? '，JupyterLab API' : ''}）`, 'ok');
-      return target;
-    }
-  } catch { /* 没有 frame 回复 */ }
+  const reports = await collectReports(tabId);
+  const best = pickReport(reports);
+  if (best) {
+    target = { tabId, frameId: best.frameId, platform: best.platform, kind: best.kind };
+    const where = best.top ? '主页面' : '内嵌 frame';
+    setStatus(`已连接：${best.platform}（${best.kind}${best.viaApp ? '，JupyterLab API' : ''}，${where}）`, 'ok');
+    $('status').title = reports.map((r) => `frame ${r.frameId}${r.top ? '(top)' : ''}: ${r.detected ? r.kind + ' ' + r.cellCount + ' 个单元格' : '不是 Notebook'}  ${String(r.url).split('?')[0]}`).join('\n');
+    return target;
+  }
   setStatus('没有检测到 Notebook：打开 AI Studio / ModelScope / Kaggle 的 Notebook，加载完后点“+ → 重新检测”', 'bad');
+  $('status').title = reports.map((r) => `frame ${r.frameId}: 不是 Notebook  ${String(r.url).split('?')[0]}`).join('\n');
+  // Notebook（尤其是 Kaggle 的 iframe）常常比页面晚加载：自动重试一会儿
+  if (attempt < 20) detectRetry = setTimeout(() => detect(attempt + 1), 3000);
   return null;
 }
 
 async function call(action, args) {
   if (!target) await detect();
   if (!target) throw new Error('未连接到 Notebook');
-  const send = () => chrome.tabs.sendMessage(target.tabId, { type: 'nbac', action, args, frameToken: target.frameToken });
+  const send = () => chrome.tabs.sendMessage(target.tabId, { type: 'nbac', action, args }, { frameId: target.frameId });
   let r;
   try { r = await send(); } catch (e) {
+    // 页面或 iframe 刷新过，重新检测一次再试
     await detect();
     if (!target) throw e;
     r = await send();
@@ -237,6 +270,7 @@ function renderBot(m, { text, code, meta, error }) {
     for (const b of [bIns, bRun, bOk]) b.disabled = true;
     try {
       const r = await call('insertCellBelow', { code: ta.value });
+      if (/footer/.test(r.via)) r.via += '，找不到“在下方插入”，已加到 Notebook 末尾';
       if (andRun) { await call('runCell', {}); setResult(`已插入新单元格并开始运行（${r.via}）`); }
       else setResult(`已插入到新单元格（${r.via}），检查无误后在 Notebook 里运行`);
     } catch (e) { setResult('插入失败：' + (e.message || e), true); }

@@ -5,7 +5,7 @@ OpenAI 兼容（百炼 compatible-mode 路径 /compatible-mode/v1，DeepSeek 路
                              no-think-model 收到思考参数 → 400（测试去参重试）
 Gemini：GET /v1beta/models、POST /v1beta/models/<m>:generateContent
 GET /last  最近一次对话请求（含完整请求体）；GET /log 所有对话请求
-GET /kaggle-fixture.html  Kaggle 编辑器近似 DOM 夹具
+GET /code/...  仿 www.kaggle.com 编辑器顶层页面（kaggle_top.html），iframe 里嵌本机 JupyterLab
 用户消息含“请修复下面这个单元格的报错”→ 返回修复后的代码，否则返回固定示例代码。"""
 import json, sys, pathlib
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
@@ -57,8 +57,10 @@ class H(BaseHTTPRequestHandler):
             return self.send(200, LOG)
         if path == '/reset':
             LOG.clear(); LAST.clear(); return self.send(200, {})
-        if path.startswith('/kaggle-fixture.html'):
-            return self.send(200, (HERE / 'kaggle_fixture.html').read_bytes(), 'text/html; charset=utf-8')
+        if path.startswith('/code/'):
+            return self.send(200, (HERE / 'kaggle_top.html').read_bytes(), 'text/html; charset=utf-8')
+        if path == '/blank.html':
+            return self.send(200, b'<!doctype html><title>blank</title><p>blank', 'text/html; charset=utf-8')
         if path in ('/compatible-mode/v1/models', '/deepseek/models'):
             if not self.bearer_ok():
                 return self.send(401, {'error': {'message': 'Incorrect API key'}})

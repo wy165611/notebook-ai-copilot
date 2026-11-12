@@ -6,6 +6,8 @@
 
 ![测试截图：JupyterLab + 侧边栏](docs/screenshot.png)
 
+![测试截图：仿 Kaggle 顶层页面 + 跨站 JupyterLab iframe](docs/kaggle-test.png)
+
 ## 功能
 
 - 对话式侧边栏（中文界面）：欢迎页带常用建议，例如“配置 YOLO11 训练环境”“写 YOLO11m 训练代码”“修复当前报错”。
@@ -64,27 +66,29 @@ Chrome 偶尔会提示“停用开发者模式扩展”，点关闭即可。
 |---|---|---|
 | 飞桨 AI Studio（BML Codelab，基于 JupyterLab） | `aistudio.baidu.com`、`*.aistudio.baidu.com` | JupyterLab 适配器；经典版 Notebook（`window.Jupyter`）走经典适配器 |
 | ModelScope Notebook（阿里云 PAI-DSW 的 JupyterLab） | `modelscope.cn`、`*.modelscope.cn`、`*.data.aliyun.com`（如 `dsw-gateway-cn-hangzhou.data.aliyun.com/dsw-xxxx/lab`） | JupyterLab 适配器 |
-| Kaggle（`www.kaggle.com/code/.../edit`） | `www.kaggle.com`、`*.kaggleusercontent.com` | 如果页面里有 JupyterLab（`.jp-Notebook`）就用 JupyterLab 适配器，否则用 Kaggle DOM 适配器 |
+| Kaggle（`www.kaggle.com/code/.../edit`） | `www.kaggle.com`、`*.kaggleusercontent.com`、`*.kaggle.net`（单元格所在的 `kkb-production.jupyter-proxy.kaggle.net` iframe） | iframe 里的 JupyterLab 4 走 JupyterLab 适配器；顶层 kaggle.com 页面没有单元格，会回报“不是 Notebook” |
 
-内容脚本在所有 iframe 里都会运行（`all_frames`），所以 Notebook 嵌在 iframe 里也能找到。
+内容脚本在所有 iframe 里都会运行（`all_frames`）。检测时每个 frame 都会回报自己是不是 Notebook，侧边栏按 `frameId` 选出真正有单元格的那个 frame（JupyterLab 优先、单元格多的优先），之后的读取、插入、运行都只发给这个 frame。Notebook 晚加载时，侧边栏会每 3 秒自动重试检测（最多约 1 分钟）。
 
-**JupyterLab 适配器**（三层兜底）：
+**JupyterLab 适配器**（按顺序兜底）：
 1. 页面暴露了 `window.jupyterapp` 时，直接用 JupyterLab 命令：`notebook:insert-cell-below`、`notebook:run-cell`，并写 `activeCell.model.sharedModel.setSource()`；
-2. 否则点 Notebook 工具栏里 `[data-command="notebook:insert-cell-below"]` / `[data-command="notebook:run-cell-and-select-next"]` 按钮，用 CodeMirror 6 的 `EditorView`（`.cm-content.cmView.view`）写代码；CodeMirror 5 用 `.CodeMirror.CodeMirror.setValue()`；
-3. 工具栏被平台改掉时，模拟快捷键 Esc → B 插入、Shift+Enter 运行。
+2. 否则点 Notebook 工具栏里 `[data-command="notebook:insert-cell-below"]` / `[data-command="notebook:run-cell-and-select-next"]` 按钮。工具栏被平台用 CSS 藏起来时，隐藏的按钮照样能用。代码用 CodeMirror 6 的 `EditorView`（`.cm-content.cmView.view`）写入，CodeMirror 5 用 `.CodeMirror.CodeMirror.setValue()`；
+3. 页面上根本没有这些按钮时：页面有焦点就模拟 Esc → B；没有焦点（比如你刚点了侧边栏，JupyterLab 的 B 快捷键需要焦点）就点 Notebook 底部的“添加单元格”区域，这时新单元格会加在**末尾**。运行用 Shift+Enter（不需要焦点）。
 报错读取：`.jp-OutputArea-output[data-mime-type="application/vnd.jupyter.stderr"]`。
 
-**Kaggle DOM 适配器**（以下选择器是根据公开资料推测的，没能登录验证）：
-- 编辑器：`.cm-editor` / `.CodeMirror` / `.monaco-editor`；当前单元格 = 有焦点或最近获得焦点的编辑器；
-- 插入：单元格内“Add code cell below”按钮，或页面上的 **“+ Code”** 按钮，都没有时用 Esc → B；
-- 运行：单元格内 aria-label/title 含 “Run” 的按钮，否则 Shift+Enter；
-- 报错：含 `Traceback`/`Error` 的 `.output_error`、`[class*=stderr]`、`pre` 等。
-如果 Kaggle 改了页面导致插入失败，侧边栏会显示失败原因，代码可以点“复制”后手动粘贴。
+**Kaggle**（2026-11 对照真实已登录 Kaggle Notebook 的 DOM 结构核对过）：
+- 顶层 `www.kaggle.com` 是 Kaggle 自己的 React/MUI 页面（工具栏有 Add cell、Run current cell、Run All 等），**没有单元格**；
+- 单元格在 `<iframe name="notebook-editor-cells" title="Notebook editor cells">` 里，地址是 `https://kkb-production.jupyter-proxy.kaggle.net/static/assets/jupyterlab-v4/jupyterlab-index-….html?session=…`，里面是标准 JupyterLab 4（`.jp-NotebookPanel > .jp-WindowedPanel-outer`、`.jp-Cell`、CodeMirror 6，也有 `data-command` 工具栏按钮）；
+- 扩展在这个 iframe 里用上面的 JupyterLab 适配器；不确定 Kaggle 是否暴露 `window.jupyterapp`，所以不依赖它。
+- 测试里用本机仿造了这个结构：顶层仿 kaggle.com 页面 + 另一个站点的 iframe 里嵌真实 JupyterLab 4（不暴露全局 app），检测、读代码和报错、插入、确认后运行、修复报错、工具栏隐藏/缺失时的兜底都通过了。**还没有在真正的 Kaggle 上端到端跑过**（测试用的托管 Chrome 里装不了这个扩展）。
+- 旧的“Kaggle DOM 适配器”（找 `+ Code` 按钮、`.cm-editor` 等）保留为兜底，只在页面里没有 JupyterLab 但有编辑器时才用，目前没有测试覆盖。
+
+如果插入失败，侧边栏会显示原因，代码可以点“复制”后手动粘贴。
 
 ## 已知限制
 
 - 界面风格参考了常见的 Notebook AI 侧边栏，只是自己用；扩展里没有用任何其他公司的标志或名称。
-- 无法登录三个平台做实测：JupyterLab 适配器在真实 JupyterLab 4.6 上测过；AI Studio / ModelScope 基于 JupyterLab，但平台可能有定制；Kaggle 只在近似的 DOM 夹具上测过。
+- 无法登录三个平台做实测：JupyterLab 适配器在真实 JupyterLab 4.6 上测过；AI Studio / ModelScope 基于 JupyterLab，但平台可能有定制；Kaggle 只在本机仿造的“顶层页面 + 跨站 JupyterLab iframe”结构上测过，没在真实 Kaggle 上跑过。
 - 插入位置是“当前选中单元格的下方”。
 - Gemini API 在中国大陆网络下通常无法直连。
 - 模型生成的代码可能有错，请一定先检查再运行，尤其是删除文件、下载大文件的命令。

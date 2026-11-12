@@ -1,0 +1,32 @@
+<!doctype html>
+<!-- 仿 www.kaggle.com 编辑器顶层页面（结构依据 2026-11 在真实已登录 Kaggle Notebook 上抓取的 DOM）：
+     顶层是 React/MUI 工具栏（Add cell / Run current cell / Run All …），本身没有任何单元格；
+     单元格在 iframe name="notebook-editor-cells" 里，iframe 来自另一个站点
+     （真实为 https://kkb-production.jupyter-proxy.kaggle.net/static/assets/jupyterlab-v4/…html?session=…）。
+     测试里 iframe 指向本机真实 JupyterLab 4（不暴露 window.jupyterapp）。 -->
+<html><head><meta charset="utf-8"><title>Kaggle notebook (local mimic)</title>
+<style>
+body{margin:0;font:14px Inter,Arial,sans-serif;background:#fff}
+.mui-toolbar{display:flex;gap:4px;align-items:center;padding:6px 12px;border-bottom:1px solid #ddd;height:40px;box-sizing:border-box}
+.mui-toolbar button{border:0;background:none;padding:6px 8px;border-radius:20px;cursor:pointer;font-size:13px}
+.mui-toolbar .title{font-weight:600;margin-right:16px}
+iframe{border:0;width:100%;height:calc(100vh - 41px);display:block}
+</style></head>
+<body>
+<div class="mui-toolbar" role="toolbar">
+  <span class="title">YOLO11m RDD2022 · Draft saved</span>
+  <button aria-label="Add cell" title="Add cell">＋</button>
+  <button aria-label="Cut cell" title="Cut cell">✂</button>
+  <button aria-label="Copy cell" title="Copy cell">⧉</button>
+  <button aria-label="Paste cell" title="Paste cell">📋</button>
+  <button aria-label="Run current cell" title="Run current cell">▶</button>
+  <button aria-label="Run All" title="Run All">Run All</button>
+  <span style="flex:1"></span><button>Code ▾</button><button>Save Version</button>
+</div>
+<iframe name="notebook-editor-cells" title="Notebook editor cells" id="nbframe"></iframe>
+<script>
+  const q = new URLSearchParams(location.search);
+  document.getElementById('nbframe').src = q.get('frame') ||
+    'http://kkb-production.jupyter-proxy.kagglenet.test:8901/lab/tree/test.ipynb?session=FAKE-SESSION&lsp=true';
+</script>
+</body></html>

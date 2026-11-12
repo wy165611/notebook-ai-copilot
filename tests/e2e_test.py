@@ -44,7 +44,7 @@ def make_notebook(root):
     }
     (root / 'test.ipynb').write_text(json.dumps(nb))
 
-def start_lab(port, expose):
+def start_lab(port, expose, frameable=False):
     root = pathlib.Path(tempfile.mkdtemp(prefix=f'nbac-lab-{port}-'))
     make_notebook(root)
     args = [PY, '-m', 'jupyterlab', '--no-browser', f'--port={port}', '--ip=127.0.0.1',
@@ -52,6 +52,10 @@ def start_lab(port, expose):
             f'--ServerApp.root_dir={root}', '--LabApp.news_url=', '--LabApp.check_for_updates_class=jupyterlab.NeverCheckForUpdate']
     if expose:
         args.append('--LabApp.expose_app_in_browser=True')
+    if frameable:
+        # 允许被另一个站点（仿 www.kaggle.com）用 iframe 嵌入，并接受仿 Kaggle 的 Host 头
+        args += ['--ServerApp.allow_remote_access=True',
+                 '--ServerApp.tornado_settings={"headers": {"Content-Security-Policy": "frame-ancestors *"}}']
     p = subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     wait_http(f'http://127.0.0.1:{port}/api/status')
     return p
@@ -150,8 +154,8 @@ def test_jupyterlab(ctx, sw, port, mode):
     panel.set_viewport_size({'width': 420, 'height': 1000})
     set_storage(panel, providers=mock_providers(), active='bailian', thinking='default', includeContext=True, modelCache={})
     status = wait_status_ok(panel)
-    want_kind = '（jupyterlab，JupyterLab API）' if mode == 'app' else '（jupyterlab）'
-    check(f'[{mode}] 检测到 Notebook', want_kind in status, status)
+    want = ('（jupyterlab，JupyterLab API，主页面）' in status) if mode == 'app' else ('（jupyterlab，主页面）' in status)
+    check(f'[{mode}] 检测到 Notebook', want, status)
 
     # 1) 生成代码，带上下文（默认：百炼 + deepseek-v4.1-flash）
     code, _, meta = ask(panel, '配置好训练 YOLO11m 的环境并写好训练代码')
@@ -193,18 +197,43 @@ def test_jupyterlab(ctx, sw, port, mode):
     check(f'[{mode}] 修复后的单元格运行成功（输出 NBAC_FIXED 1.0）', wait_text(page, 'NBAC_FIXED 1.0'), r)
 
     if mode == 'dom':
-        # 4b) 平台把工具栏改掉/藏起来时，退回到键盘快捷键（Esc→B 插入，Shift+Enter 运行）
-        page.add_style_tag(content='.jp-Toolbar { display: none !important; }')
-        n2 = lab_cell_count(page)
-        msg.query_selector('.act-run').click()
-        r = click_and_wait_result(panel, msg, '.act-confirm')
-        ok = True
-        try:
-            page.wait_for_function("() => document.body.innerText.split('NBAC_FIXED 1.0').length > 2", timeout=30000)
-        except Exception:
-            ok = False
-        check('[dom] 没有工具栏时用键盘快捷键插入并运行', 'keyboard' in r and lab_cell_count(page) >= n2 + 1 and ok, r)
+        fallback_checks('dom', page, panel, msg, COUNT_JS, FIXED_N_JS)
     panel.close(); page.close()
+
+STRIP_BUTTONS_JS = """() => {
+  const kill = () => document.querySelectorAll('[data-command^="notebook:insert"], [data-command^="notebook:run"]').forEach(b => b.remove());
+  kill(); new MutationObserver(kill).observe(document.body, {subtree: true, childList: true});
+}"""
+
+def fallback_checks(tag, target, panel, msg, count_js, done_js):
+    """平台把工具栏藏起来 / 干脆没有这些按钮时的兜底路径。"""
+    # a) 工具栏被 CSS 隐藏：隐藏的按钮仍然可用
+    target.add_style_tag(content='.jp-Toolbar { display: none !important; }')
+    n = target.eval_on_selector_all('.jp-Notebook .jp-Cell', count_js)
+    k = target.evaluate("() => document.body.innerText.split('NBAC_FIXED 1.0').length")
+    msg.query_selector('.act-run').click()
+    r = click_and_wait_result(panel, msg, '.act-confirm')
+    ok = True
+    try:
+        target.wait_for_function(done_js, arg=k, timeout=30000)
+    except Exception:
+        ok = False
+    check(f'[{tag}] 工具栏被隐藏时仍能插入并运行（用隐藏的工具栏按钮）', 'toolbar-button' in r and target.eval_on_selector_all('.jp-Notebook .jp-Cell', count_js) >= n + 1 and ok, r)
+    # b) 页面上根本没有插入/运行按钮：快捷键（frame 有焦点时）或底部“添加单元格”，运行用 Shift+Enter
+    target.evaluate(STRIP_BUTTONS_JS)
+    n = target.eval_on_selector_all('.jp-Notebook .jp-Cell', count_js)
+    k = target.evaluate("() => document.body.innerText.split('NBAC_FIXED 1.0').length")
+    msg.query_selector('.act-run').click()
+    r = click_and_wait_result(panel, msg, '.act-confirm')
+    ok = True
+    try:
+        target.wait_for_function(done_js, arg=k, timeout=30000)
+    except Exception:
+        ok = False
+    check(f'[{tag}] 没有任何按钮时用快捷键/底部添加区插入并用 Shift+Enter 运行', ('keyboard' in r or 'notebook-footer' in r) and target.eval_on_selector_all('.jp-Notebook .jp-Cell', count_js) >= n + 1 and ok, r)
+
+COUNT_JS = 'e => e.length'
+FIXED_N_JS = "(n) => document.body.innerText.split('NBAC_FIXED 1.0').length > n"
 
 def menu_levels(panel):
     panel.click('#thinkBtn')
@@ -236,8 +265,8 @@ def pick_model(panel, model, provider=None):
 def test_models_and_thinking(ctx, sw):
     print('\n=== 服务商 / 模型列表 / 思考强度 ===', flush=True)
     page = ctx.new_page()
-    page.goto(MOCK + '/kaggle-fixture.html')
-    panel = open_panel(ctx, sw, MOCK + '/kaggle-fixture.html*')
+    page.goto(MOCK + '/blank.html')
+    panel = open_panel(ctx, sw, MOCK + '/blank.html')
     panel.evaluate("() => chrome.storage.local.clear()")
     panel.reload(); time.sleep(0.8)
     check('[model] 首次安装默认服务商=阿里云百炼，模型=deepseek-v4.1-flash', panel.inner_text('#modelLabel') == 'deepseek-v4.1-flash'
@@ -322,35 +351,78 @@ def test_models_and_thinking(ctx, sw):
           panel.inner_text('#modelLabel') == 'gemini-3.5-flash' and panel.inner_text('#thinkLabel') == '低' and st == {'active': 'gemini', 'thinking': 'low'}, str(st))
     panel.close(); page.close()
 
-def test_kaggle_fixture(ctx, sw):
-    print('\n=== Kaggle 近似夹具（APPROXIMATE） ===', flush=True)
+KAGGLE_TOP = 'http://www.kaggle.test:%d/code/someone/yolo11m-rdd2022/edit' % MOCK_PORT
+
+def kaggle_frame(page):
+    return page.frame(name='notebook-editor-cells')
+
+def test_kaggle(ctx, sw):
+    """仿真实 Kaggle：顶层 www.kaggle.test（仿 kaggle.com 的 React 工具栏，无单元格）+
+    跨站 iframe kkb-production.jupyter-proxy.kagglenet.test:8901（真实 JupyterLab 4，不暴露全局 app）。"""
+    print('\n=== Kaggle（顶层页面 + 跨站 JupyterLab iframe） ===', flush=True)
     page = ctx.new_page()
     page.set_viewport_size({'width': 1000, 'height': 900})
-    page.goto(MOCK + '/kaggle-fixture.html')
-    page.wait_for_selector('.cm-content')
-    page.query_selector_all('.cm-content')[1].click()
-    panel = open_panel(ctx, sw, MOCK + '/kaggle-fixture.html*')
+    page.goto(KAGGLE_TOP)
+    page.wait_for_function("() => window.frames['notebook-editor-cells']", timeout=20000)
+    fr = None
+    for _ in range(120):
+        fr = kaggle_frame(page)
+        if fr and fr.url.startswith('http://kkb-production.jupyter-proxy.kagglenet.test'):
+            try:
+                if fr.query_selector('.jp-Notebook .jp-Cell .cm-content'):
+                    break
+            except Exception:
+                pass
+        time.sleep(0.5)
+    check('[kaggle] iframe 来自另一个站点并加载了 JupyterLab', fr is not None and fr.url.startswith('http://kkb-production.jupyter-proxy.kagglenet.test:8901/'), fr.url if fr else None)
+    check('[kaggle] iframe 里没有暴露 window.jupyterapp', fr.evaluate("() => !window.jupyterapp && !window.jupyterlab"))
+    time.sleep(3)
+    cells = lambda: fr.query_selector_all('.jp-Notebook .jp-Cell .cm-content')
+    cells()[0].click(); page.keyboard.press('Shift+Enter')
+    fr.wait_for_function("() => [...document.querySelectorAll('.jp-OutputArea-output')].some(e => e.innerText.includes('42'))", timeout=60000)
+    cells()[1].click(); page.keyboard.press('Shift+Enter')
+    fr.wait_for_function("() => document.body.innerText.includes('ZeroDivisionError')", timeout=30000)
+    cells()[1].click()
+
+    panel = open_panel(ctx, sw, 'http://www.kaggle.test:%d/*' % MOCK_PORT)
+    panel.set_viewport_size({'width': 420, 'height': 1000})
     set_storage(panel, providers=mock_providers(), active='bailian', thinking='default', includeContext=True)
     status = wait_status_ok(panel)
-    check('[kaggle] 检测到 Kaggle 适配器', 'Kaggle' in status and 'kaggle-dom' in status, status)
-    page.query_selector_all('.cm-content')[1].click()
-    ask(panel, fix=True)
+    frames = panel.evaluate("() => document.getElementById('status').title")
+    check('[kaggle] 连上的是 iframe 里的 JupyterLab（不是顶层 kaggle 页面）', 'Kaggle' in status and 'jupyterlab' in status and '内嵌 frame' in status, status)
+    check('[kaggle] 顶层 www.kaggle 页面回报“不是 Notebook”', '(top): 不是 Notebook' in frames, frames.replace('\n', ' | '))
+
+    code, _, _ = ask(panel, '配置好训练 YOLO11m 的环境')
     L = last()
-    check('[kaggle] 读取单元格代码和报错', 'y = 1/0' in L.get('user', '') and 'ZeroDivisionError' in L.get('user', ''))
-    n0 = page.eval_on_selector_all('.cm-content', 'e => e.length')
+    check('[kaggle] 从 iframe 读取单元格代码和报错', 'y = 1/0' in L.get('user', '') and 'ZeroDivisionError' in L.get('user', ''))
+    check('[kaggle] 系统提示按海外平台（不加清华镜像）', 'tsinghua' not in L.get('system', '') and 'Kaggle' in L.get('system', ''))
+
+    msg = last_bot(panel)
+    n0 = fr.eval_on_selector_all('.jp-Notebook .jp-Cell', 'e => e.length')
+    r = click_and_wait_result(panel, msg, '.act-insert')
+    txt = fr.evaluate("() => { const c = document.querySelector('.jp-Notebook .jp-Cell.jp-mod-active .cm-content'); return c ? c.cmView.view.state.doc.toString() : ''; }")
+    check('[kaggle] 在 iframe 里插入新单元格并写入代码', fr.eval_on_selector_all('.jp-Notebook .jp-Cell', 'e => e.length') == n0 + 1 and txt.strip() == code.strip(), r)
+    time.sleep(1)
+    check('[kaggle] 只插入时没有运行', 'NBAC_OK 42' not in fr.inner_text('body').replace(code, ''))
+
+    msg.query_selector('.act-run').click()
+    check('[kaggle] 运行前要确认', msg.query_selector('.confirm').is_visible())
+    r = click_and_wait_result(panel, msg, '.act-confirm')
+    check('[kaggle] 确认后在 iframe 里插入并运行，输出 NBAC_OK 42 True', wait_text(fr, 'NBAC_OK 42 True'), r)
+
+    cells()[1].click()
+    code, _, _ = ask(panel, fix=True)
+    L = last()
+    check('[kaggle] 修复报错：把 iframe 里的报错发给模型', '请修复' in L.get('user', '') and 'ZeroDivisionError' in L.get('user', '') and 'NBAC_FIXED' in code)
     msg = last_bot(panel)
     msg.query_selector('.act-run').click()
     r = click_and_wait_result(panel, msg, '.act-confirm')
-    ok = True
-    try:
-        page.wait_for_function("() => [...document.querySelectorAll('.output')].some(o => o.innerText.includes('NBAC_FIXED'))", timeout=15000)
-    except Exception:
-        ok = False
-    n1 = page.eval_on_selector_all('.cm-content', 'e => e.length')
-    new_text = page.eval_on_selector_all('.cm-content', 'e => e[e.length-1].innerText')
-    check('[kaggle] “+ Code” 插入新单元格并写入代码', n1 == n0 + 1 and 'NBAC_FIXED' in new_text, r)
-    check('[kaggle] 运行新单元格（夹具里的假运行）', ok)
-    page.screenshot(path=str(SHOT_DIR / 'kaggle-fixture.png'))
+    check('[kaggle] 修复后的单元格在 iframe 里运行成功（NBAC_FIXED 1.0）', wait_text(fr, 'NBAC_FIXED 1.0'), r)
+
+    # Kaggle 的 iframe 里工具栏可能被隐藏，或者根本没有这些按钮
+    fallback_checks('kaggle', fr, panel, msg, COUNT_JS, FIXED_N_JS)
+    page.screenshot(path=str(SHOT_DIR / 'kaggle-notebook.png'))
+    panel.screenshot(path=str(SHOT_DIR / 'kaggle-panel.png'))
     panel.close(); page.close()
 
 def test_options(ctx, sw):
@@ -404,7 +476,7 @@ def screenshot_demo(ctx, sw):
 def main():
     ext = subprocess.check_output([PY, str(HERE / 'build_test_ext.py')], text=True).strip()
     mock = subprocess.Popen([PY, str(HERE / 'mock_server.py'), str(MOCK_PORT)])
-    labs = [start_lab(8899, False), start_lab(8900, True)]
+    labs = [start_lab(8899, False), start_lab(8900, True), start_lab(8901, False, frameable=True)]
     try:
         wait_http(MOCK + '/last')
         with sync_playwright() as pw:
@@ -412,12 +484,13 @@ def main():
             ctx = pw.chromium.launch_persistent_context(udd, headless=False, args=[
                 f'--disable-extensions-except={ext}', f'--load-extension={ext}',
                 '--disable-background-timer-throttling', '--disable-renderer-backgrounding',
-                '--disable-backgrounding-occluded-windows', '--window-size=1100,1000', '--window-position=0,0'])
+                '--disable-backgrounding-occluded-windows', '--window-size=1100,1000', '--window-position=0,0',
+                '--host-resolver-rules=MAP *.kaggle.test 127.0.0.1, MAP *.kagglenet.test 127.0.0.1'])
             sw = ctx.service_workers[0] if ctx.service_workers else ctx.wait_for_event('serviceworker')
             for t in (test_options, test_models_and_thinking,
                       lambda c, s: test_jupyterlab(c, s, 8899, 'dom'),
                       lambda c, s: test_jupyterlab(c, s, 8900, 'app'),
-                      test_kaggle_fixture, screenshot_demo):
+                      test_kaggle, screenshot_demo):
                 try:
                     t(ctx, sw)
                 except Exception as e:

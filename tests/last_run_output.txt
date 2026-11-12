@@ -33,7 +33,7 @@ PASS [gemini] “低” → generationConfig.thinkingConfig.thinkingLevel=low，
 PASS [memory] 重新打开面板后记住服务商/模型/思考强度  [{'active': 'gemini', 'thinking': 'low'}]
 
 === JupyterLab (dom) on :8899 ===
-PASS [dom] 检测到 Notebook  [已连接：Jupyter（jupyterlab）]
+PASS [dom] 检测到 Notebook  [已连接：Jupyter（jupyterlab，主页面）]
 PASS [dom] 百炼默认模型生成代码并显示在对话里  [阿里云百炼 · deepseek-v4.1-flash · 已附带上下文]
 PASS [dom] 请求发到百炼兼容接口，模型 deepseek-v4.1-flash
 PASS [dom] 读取当前单元格代码并发给模型
@@ -49,10 +49,11 @@ PASS [dom] 确认后插入并运行，看到输出 “NBAC_OK 42 True”  [已�
 PASS [dom] “修复报错”把代码和报错发给模型
 PASS [dom] “修复报错”返回修好的单元格
 PASS [dom] 修复后的单元格运行成功（输出 NBAC_FIXED 1.0）  [已插入新单元格并开始运行（toolbar-button+cm6）]
-PASS [dom] 没有工具栏时用键盘快捷键插入并运行  [已插入新单元格并开始运行（keyboard+cm6）]
+PASS [dom] 工具栏被隐藏时仍能插入并运行（用隐藏的工具栏按钮）  [已插入新单元格并开始运行（toolbar-button+cm6）]
+PASS [dom] 没有任何按钮时用快捷键/底部添加区插入并用 Shift+Enter 运行  [已插入新单元格并开始运行（keyboard+cm6）]
 
 === JupyterLab (app) on :8900 ===
-PASS [app] 检测到 Notebook  [已连接：Jupyter（jupyterlab，JupyterLab API）]
+PASS [app] 检测到 Notebook  [已连接：Jupyter（jupyterlab，JupyterLab API，主页面）]
 PASS [app] 百炼默认模型生成代码并显示在对话里  [阿里云百炼 · deepseek-v4.1-flash · 已附带上下文]
 PASS [app] 请求发到百炼兼容接口，模型 deepseek-v4.1-flash
 PASS [app] 读取当前单元格代码并发给模型
@@ -69,13 +70,23 @@ PASS [app] “修复报错”把代码和报错发给模型
 PASS [app] “修复报错”返回修好的单元格
 PASS [app] 修复后的单元格运行成功（输出 NBAC_FIXED 1.0）  [已插入新单元格并开始运行（jupyterlab-commands）]
 
-=== Kaggle 近似夹具（APPROXIMATE） ===
-PASS [kaggle] 检测到 Kaggle 适配器  [已连接：Kaggle（kaggle-dom）]
-PASS [kaggle] 读取单元格代码和报错
-PASS [kaggle] “+ Code” 插入新单元格并写入代码  [已插入新单元格并开始运行（button+input-events）]
-PASS [kaggle] 运行新单元格（夹具里的假运行）
+=== Kaggle（顶层页面 + 跨站 JupyterLab iframe） ===
+PASS [kaggle] iframe 来自另一个站点并加载了 JupyterLab  [http://kkb-production.jupyter-proxy.kagglenet.test:8901/lab/tree/test.ipynb?session=FAKE-SESSION&lsp=true]
+PASS [kaggle] iframe 里没有暴露 window.jupyterapp
+PASS [kaggle] 连上的是 iframe 里的 JupyterLab（不是顶层 kaggle 页面）  [已连接：Kaggle（jupyterlab，内嵌 frame）]
+PASS [kaggle] 顶层 www.kaggle 页面回报“不是 Notebook”  [frame 0(top): 不是 Notebook  http://www.kaggle.test:8765/code/someone/yolo11m-rdd2022/edit | frame 11: jupyterlab 3 个单元格  http://kkb-production.jupyter-proxy.kagglenet.test:8901/lab/tree/test.ipynb]
+PASS [kaggle] 从 iframe 读取单元格代码和报错
+PASS [kaggle] 系统提示按海外平台（不加清华镜像）
+PASS [kaggle] 在 iframe 里插入新单元格并写入代码  [已插入到新单元格（toolbar-button+cm6），检查无误后在 Notebook 里运行]
+PASS [kaggle] 只插入时没有运行
+PASS [kaggle] 运行前要确认
+PASS [kaggle] 确认后在 iframe 里插入并运行，输出 NBAC_OK 42 True  [已插入新单元格并开始运行（toolbar-button+cm6）]
+PASS [kaggle] 修复报错：把 iframe 里的报错发给模型
+PASS [kaggle] 修复后的单元格在 iframe 里运行成功（NBAC_FIXED 1.0）  [已插入新单元格并开始运行（toolbar-button+cm6）]
+PASS [kaggle] 工具栏被隐藏时仍能插入并运行（用隐藏的工具栏按钮）  [已插入新单元格并开始运行（toolbar-button+cm6）]
+PASS [kaggle] 没有任何按钮时用快捷键/底部添加区插入并用 Shift+Enter 运行  [已插入新单元格并开始运行（notebook-footer(末尾)+cm6，找不到“在下方插入”，已加到 Notebook 末尾）]
 
 === 截图 ===
 PASS [demo] 截图用的运行也成功
 
-65/65 checks passed
+76/76 checks passed

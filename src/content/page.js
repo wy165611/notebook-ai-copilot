@@ -167,9 +167,13 @@
       const nb = this.notebookNode();
       const panel = nb && nb.closest('.jp-NotebookPanel');
       const scope = panel || document;
-      // 优先 Notebook 顶部工具栏，其次当前单元格的悬浮工具栏；必须可见
-      const btns = Array.from(scope.querySelectorAll(`[data-command="${command}"]`)).filter(visible);
-      return btns.find((b) => b.closest('.jp-NotebookPanel-toolbar')) || btns[0] || null;
+      // 优先可见的按钮（Notebook 顶部工具栏 > 当前单元格的悬浮工具栏）；
+      // 平台用 CSS 把工具栏藏起来时，隐藏的按钮依然在 DOM 里、React 事件依然有效，也可以用
+      const btns = Array.from(scope.querySelectorAll(`[data-command="${command}"]`))
+        .filter((b) => !b.closest('.jp-Toolbar-responsive-popup'));
+      const rank = (b) => (visible(b) ? 0 : 2) + (b.closest('.jp-NotebookPanel-toolbar') ? 0 : 1);
+      btns.sort((a, b) => rank(a) - rank(b));
+      return btns[0] || null;
     },
     async insertCellBelow(code) {
       const w = this.panelWidget();
@@ -187,10 +191,16 @@
       const before = nb.querySelectorAll('.jp-Cell').length;
       const oldActive = this.activeCellNode();
       const btn = this.toolbarButton('notebook:insert-cell-below');
-      let via;
-      if (btn) { press(btn); via = 'toolbar-button'; } else {
-        // 命令模式下按 B：先 Esc 退出编辑模式。JupyterLab 的快捷键要求事件目标是
-        // 命令模式 Notebook 里获得焦点的元素（通常是当前单元格节点）
+      const grew = (ms) => waitFor(() => nb.querySelectorAll('.jp-Cell').length > before, ms);
+      let via = '';
+      let ok = false;
+      if (btn) {
+        press(btn); via = 'toolbar-button';
+        ok = await grew(2000);
+      }
+      if (!ok && document.hasFocus()) {
+        // 命令模式下按 B。JupyterLab 的这个快捷键要求目标元素处于 :focus，
+        // 所以只有页面（frame）本身有焦点时才有效
         const ed = oldActive && oldActive.querySelector('.cm-content');
         if (nb.classList.contains('jp-mod-editMode') && ed) key(ed, 'Escape');
         await sleep(150);
@@ -202,9 +212,14 @@
         }
         key(t, 'b');
         via = 'keyboard';
+        ok = await grew(1500);
       }
-      const ok = await waitFor(() => nb.querySelectorAll('.jp-Cell').length > before);
-      if (!ok) throw new Error('插入新单元格失败（工具栏按钮/快捷键均无效）');
+      if (!ok) {
+        // 最后兜底：Notebook 底部的“点击添加单元格”区域（会加在末尾）
+        const footer = nb.querySelector('.jp-Notebook-footer');
+        if (footer) { press(footer); via = 'notebook-footer(末尾)'; ok = await grew(2000); }
+      }
+      if (!ok) throw new Error('插入新单元格失败（工具栏按钮、快捷键和底部“添加单元格”都无效）');
       const cell = await waitFor(() => {
         const c = this.activeCellNode();
         return c && c !== oldActive ? c : null;
@@ -253,7 +268,11 @@
     async runCell() { this.nb().get_selected_cell().execute(); return { ran: true, via: 'Jupyter.notebook' }; }
   };
 
-  // ---------- 适配器 3：Kaggle 编辑器（自定义 UI，基于 DOM 推测，选择器见 README） ----------
+  // ---------- 适配器 3（兜底）：Kaggle 旧式/非 JupyterLab 编辑器 ----------
+  // 实测（2026-11）：Kaggle 编辑器的单元格是嵌在 iframe 里的 JupyterLab 4
+  // （kkb-production.jupyter-proxy.kaggle.net，iframe name="notebook-editor-cells"），
+  // 那个 frame 里会走上面的 JupyterLab 适配器；顶层 www.kaggle.com 没有单元格，会回报“不是 Notebook”。
+  // 下面这个基于 DOM 的适配器只在页面里没有 JupyterLab、但有编辑器时兜底。
   // 假设（无法登录验证）：
   //  - 每个代码单元格包含一个 CodeMirror（.cm-editor 或 .CodeMirror）或 Monaco 编辑器；
   //  - 有“+ Code”/“Add code cell”按钮，或支持 Jupyter 风格的 Esc → B 快捷键；
@@ -356,7 +375,10 @@
   const handlers = {
     detect() {
       const a = pickAdapter();
-      return a ? { detected: true, platform: platformName(), kind: a.kind, viaApp: a === jupyterLab && !!jupyterLab.panelWidget() } : { detected: false };
+      if (!a) return { detected: false, platform: platformName() };
+      const nb = a === jupyterLab ? jupyterLab.notebookNode() : null;
+      const cellCount = nb ? nb.querySelectorAll('.jp-Cell').length : (a === kaggle ? kaggle.editors().length : 0);
+      return { detected: true, platform: platformName(), kind: a.kind, cellCount, viaApp: a === jupyterLab && !!jupyterLab.panelWidget() };
     },
     getContext() {
       const a = pickAdapter();
