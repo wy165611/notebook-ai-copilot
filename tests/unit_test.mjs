@@ -97,7 +97,7 @@ assert.deepEqual(filterChatModels(['qwen3.8-max', 'paraformer-v2', 'qwen-tts', '
 // manifest：安睿云域名在所有内容脚本里都匹配、全部 frame 注入
 {
   const man = JSON.parse(fs.readFileSync(new URL('../manifest.json', import.meta.url), 'utf8'));
-  assert.equal(man.version, '0.1.2');
+  assert.equal(man.version, '0.1.3');
   const files = man.content_scripts.flatMap((c) => c.js);
   for (const f of ['src/content/early.js', 'src/content/nb-helpers.js', 'src/content/page.js', 'src/content/bridge.js']) assert.ok(files.includes(f), f);
   for (const cs of man.content_scripts) {

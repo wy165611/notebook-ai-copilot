@@ -75,7 +75,16 @@ async function detect(attempt = 0) {
     return target;
   }
   const hint = reports.find((r) => r.hint);
-  setStatus(hint ? hint.hint : '没有检测到 Notebook：打开 AI Studio / ModelScope / Kaggle 的 Notebook，加载完后点“+ → 重新检测”', 'bad');
+  let tabUrl = '';
+  try { tabUrl = (await chrome.tabs.get(tabId)).url || ''; } catch { /* ignore */ }
+  const noScript = !reports.length;
+  const msg = hint ? hint.hint
+    : noScript && /^https?:/.test(tabUrl)
+      ? '这个网页还没加载助手脚本：请刷新这个网页（扩展重新加载或更新后，已打开的网页都要刷新一次），再打开一个 .ipynb'
+      : noScript
+        ? '当前标签页不是 Notebook 页面：请切换到 AI Studio / ModelScope / Kaggle / 安睿云 JupyterLab 的 Notebook 标签页'
+        : '没有检测到 Notebook：打开 AI Studio / ModelScope / Kaggle / 安睿云 JupyterLab 的 Notebook，加载完后点“+ → 重新检测”';
+  setStatus(msg, 'bad');
   $('status').title = reports.map((r) => `frame ${r.frameId}: 不是 Notebook  ${String(r.url).split('?')[0]}`).join('\n');
   // Notebook（尤其是 Kaggle 的 iframe）常常比页面晚加载：自动重试一会儿
   if (attempt < 20) detectRetry = setTimeout(() => detect(attempt + 1), 3000);
@@ -418,7 +427,7 @@ $('closePanel').addEventListener('click', () => window.close());
 chrome.storage.onChanged.addListener((_c, area) => { if (area === 'local') refreshSettings(); });
 if (!forcedTabId) {
   chrome.tabs.onActivated.addListener(() => detect());
-  chrome.tabs.onUpdated.addListener((id, info) => { if (info.status === 'complete' && target && id === target.tabId) detect(); });
+  chrome.tabs.onUpdated.addListener(async (id, info) => { if (info.status !== 'complete') return; if ((target && id === target.tabId) || id === await activeTabId()) detect(); });
 }
 
 refreshSettings().then(detect);
