@@ -64,7 +64,7 @@ Chrome 偶尔会提示“停用开发者模式扩展”，点关闭即可。
 
 | 平台 | 匹配的网址 | 适配方式 |
 |---|---|---|
-| 飞桨 AI Studio（BML Codelab，基于 JupyterLab） | `aistudio.baidu.com`、`*.aistudio.baidu.com` | JupyterLab 适配器；经典版 Notebook（`window.Jupyter`）走经典适配器 |
+| 飞桨 AI Studio（BML Codelab，基于 JupyterLab） | `aistudio.baidu.com`、`*.aistudio.baidu.com` | `#jupyterlab-frame` iframe 里的 JupyterLab 走 JupyterLab 适配器（支持 Monaco 编辑器）；外层项目编辑器不支持，见下文 |
 | ModelScope Notebook（阿里云 PAI-DSW 的 JupyterLab） | `modelscope.cn`、`*.modelscope.cn`、`*.data.aliyun.com`（如 `dsw-gateway-cn-hangzhou.data.aliyun.com/dsw-xxxx/lab`） | JupyterLab 适配器 |
 | Kaggle（`www.kaggle.com/code/.../edit`） | `www.kaggle.com`、`*.kaggleusercontent.com`、`*.kaggle.net`（单元格所在的 `kkb-production.jupyter-proxy.kaggle.net` iframe） | iframe 里的 JupyterLab 4 走 JupyterLab 适配器；顶层 kaggle.com 页面没有单元格，会回报“不是 Notebook” |
 
@@ -75,6 +75,13 @@ Chrome 偶尔会提示“停用开发者模式扩展”，点关闭即可。
 2. 否则点 Notebook 工具栏里 `[data-command="notebook:insert-cell-below"]` / `[data-command="notebook:run-cell-and-select-next"]` 按钮。工具栏被平台用 CSS 藏起来时，隐藏的按钮照样能用。代码用 CodeMirror 6 的 `EditorView`（`.cm-content.cmView.view`）写入，CodeMirror 5 用 `.CodeMirror.CodeMirror.setValue()`；
 3. 页面上根本没有这些按钮时：页面有焦点就模拟 Esc → B；没有焦点（比如你刚点了侧边栏，JupyterLab 的 B 快捷键需要焦点）就点 Notebook 底部的“添加单元格”区域，这时新单元格会加在**末尾**。运行用 Shift+Enter（不需要焦点）。
 报错读取：`.jp-OutputArea-output[data-mime-type="application/vnd.jupyter.stderr"]`。
+
+**飞桨 AI Studio**（2026-11 对照真实已登录 AI Studio 的 DOM 结构核对过）：
+- **请在 BML Codelab 里用**：打开项目后点「**专业开发**」进入 BML Codelab（地址类似 `aistudio.baidu.com/bj-cpu-01/user/…/…/home#codelab`）。
+- 外层的项目编辑器（`/project/edit/…`）是 AI Studio 自己的页面，DOM 里没有足够稳定的单元格结构，**暂不支持**；在那里打开侧边栏会提示“请点击「专业开发」打开 BML Codelab 后使用”。
+- BML Codelab 的宿主页同源嵌了两个 iframe：`#vscode-frame`（VS Code，里面还有 webview 子 iframe）和 `#jupyterlab-frame`（JupyterLab，单元格在这里）。宿主页和 VS Code 那些 frame 都会回报“不是 Notebook”，侧边栏只连 `#jupyterlab-frame`。
+- 那里的 JupyterLab 是中文界面（如按钮标题“下方插入单元格 (B)”），单元格编辑器是 **Monaco**，并且不暴露全局 `window.monaco`。扩展只靠 `data-command`、class 这些不随语言变化的选择器；Monaco 的内容从渲染出来的行（`.view-lines .view-line`）读取，写入时对 Monaco 的隐藏输入框发一个“粘贴”事件（粘贴不会自动补括号），运行用工具栏按钮或 Shift+Enter。
+- 测试里在本机仿造了这个结构：同源宿主页 + `#vscode-frame` 诱饵（含嵌套 iframe）+ `#jupyterlab-frame` 里经反向代理的真实中文 JupyterLab 4；另有一个照抄真实 DOM、用真实 Monaco（去掉全局）的单元格夹具（运行是假的）。检测、读代码和报错、插入、确认后运行、修复报错、外层编辑器提示都通过了。**还没有在真正的 AI Studio 上端到端跑过。**
 
 **Kaggle**（2026-11 对照真实已登录 Kaggle Notebook 的 DOM 结构核对过）：
 - 顶层 `www.kaggle.com` 是 Kaggle 自己的 React/MUI 页面（工具栏有 Add cell、Run current cell、Run All 等），**没有单元格**；
@@ -88,7 +95,7 @@ Chrome 偶尔会提示“停用开发者模式扩展”，点关闭即可。
 ## 已知限制
 
 - 界面风格参考了常见的 Notebook AI 侧边栏，只是自己用；扩展里没有用任何其他公司的标志或名称。
-- 无法登录三个平台做实测：JupyterLab 适配器在真实 JupyterLab 4.6 上测过；AI Studio / ModelScope 基于 JupyterLab，但平台可能有定制；Kaggle 只在本机仿造的“顶层页面 + 跨站 JupyterLab iframe”结构上测过，没在真实 Kaggle 上跑过。
+- 无法登录三个平台做实测：JupyterLab 适配器在真实 JupyterLab 4.6 上测过；ModelScope 基于 JupyterLab，但平台可能有定制；AI Studio（BML Codelab）和 Kaggle 只在本机按真实 DOM 仿造的结构上测过，没在真实平台上跑过。AI Studio 的 Monaco 单元格只能读到当前渲染出来的行，特别长的单元格可能读不全。
 - 插入位置是“当前选中单元格的下方”。
 - Gemini API 在中国大陆网络下通常无法直连。
 - 模型生成的代码可能有错，请一定先检查再运行，尤其是删除文件、下载大文件的命令。

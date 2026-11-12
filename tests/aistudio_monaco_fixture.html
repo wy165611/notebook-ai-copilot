@@ -1,0 +1,83 @@
+<!doctype html>
+<!-- 仿飞桨 AI Studio BML Codelab 里的 JupyterLab 单元格 DOM（照抄 2026-11 真实抓取的 frame-1.html 结构）：
+     JupyterLab 3 风格的 p-Widget/lm-Widget 类名、单元格编辑器是 Monaco（.jp-InputArea-editor > .monaco-editor），
+     当前单元格上方有中文标题的单元格工具栏（data-command="notebook:insert-cell-below" title="下方插入单元格 (B)"）。
+     使用真实的 monaco-editor，但不暴露全局 window.monaco。
+     “运行”是假的：Shift+Enter 只识别 1/0 和 NBAC_* 测试输出，不是真内核。 -->
+<html lang="zh"><head><meta charset="utf-8"><title>main.ipynb - BML Codelab</title>
+<style>body{margin:0;font:13px sans-serif}.jp-NotebookPanel{padding:10px 20px}.jp-Cell{border:1px solid #ddd;margin:8px 0;padding:4px;position:relative}
+.jp-Cell.jp-mod-active{border-color:#2196f3}.jp-InputArea{display:flex}.jp-InputArea-prompt{width:50px;color:#888}.jp-InputArea-editor{flex:1;height:90px;border:1px solid #eee}
+.jp-cell-toolbar{position:absolute;right:6px;top:-14px;background:#fff;border:1px solid #ddd}.jp-cell-toolbar button{font-size:11px}
+.jp-OutputArea-output pre{margin:2px 0 2px 50px}[data-mime-type="application/vnd.jupyter.stderr"]{background:#fdd}</style>
+</head><body>
+<div class="lm-Widget p-Widget jp-MainAreaWidget jp-NotebookPanel jp-Document">
+<div class="lm-Widget p-Widget jp-Notebook jp-mod-scrollPastEnd jp-NotebookPanel-notebook jp-mod-commandMode" id="nb"></div>
+</div>
+<script src="/vs/loader.js"></script>
+<script>
+const editors = new Map();
+let counter = 0;
+const nb = document.getElementById('nb');
+const toolbar = document.createElement('div');
+toolbar.className = 'lm-Widget p-Widget jp-Toolbar jp-cell-menu jp-cell-toolbar';
+toolbar.innerHTML = '<button class="jp-ToolbarButtonComponent jp-Button" data-command="notebook:duplicate-below" title="复制选定的单元格并将它们粘贴至其下方">复制</button>' +
+  '<button class="jp-ToolbarButtonComponent jp-Button" data-command="notebook:insert-cell-above" title="上方插入单元格 (A)">上</button>' +
+  '<button class="jp-ToolbarButtonComponent jp-Button" data-command="notebook:insert-cell-below" title="下方插入单元格 (B)">下方插入</button>' +
+  '<button class="jp-ToolbarButtonComponent jp-Button" data-command="notebook:delete-cell" title="删除单元格 (D)">删</button>';
+function activate(cell) {
+  nb.querySelectorAll('.jp-Cell').forEach(c => c.classList.remove('jp-mod-active', 'jp-mod-selected'));
+  cell.classList.add('jp-mod-active', 'jp-mod-selected');
+  cell.prepend(toolbar);
+}
+function makeCell(code, after) {
+  const cell = document.createElement('div');
+  cell.className = 'lm-Widget p-Widget jp-Cell jp-CodeCell aicc-extend-cell jp-mod-outputsScrolled jp-Notebook-cell';
+  cell.innerHTML = '<div class="lm-Widget p-Widget jp-Cell-header"><div class="aicc-jp-cell-header"></div></div>' +
+    '<div class="lm-Widget p-Widget lm-Panel p-Panel jp-Cell-inputWrapper"><div class="lm-Widget p-Widget jp-InputArea jp-Cell-inputArea">' +
+    '<div class="lm-Widget p-Widget jp-InputPrompt jp-InputArea-prompt">[ ]:</div>' +
+    '<div class="lm-Widget p-Widget jp-InputArea-editor" data-type="inline" data-mode-id="python"></div></div></div>' +
+    '<div class="lm-Widget p-Widget lm-Panel p-Panel jp-Cell-outputWrapper"><div class="lm-Widget p-Widget jp-OutputArea jp-Cell-outputArea"></div></div>' +
+    '<div class="lm-Widget p-Widget jp-Cell-footer"><div class="aicc-jp-code-cell-footer"></div></div>';
+  if (after && after.nextSibling) nb.insertBefore(cell, after.nextSibling); else nb.appendChild(cell);
+  const ed = window.__fixtureMonaco.editor.create(cell.querySelector('.jp-InputArea-editor'), { value: code || '', language: 'python', minimap: { enabled: false }, automaticLayout: true,
+    // 真实 AI Studio 的 Monaco 用隐藏 textarea（.inputarea）接收输入，新版 Monaco 默认改用 EditContext，这里关掉以对齐
+    editContext: false, experimentalEditContextEnabled: false });
+  editors.set(cell, ed);
+  cell.addEventListener('mousedown', () => activate(cell), true);
+  ed.onDidFocusEditorText(() => { activate(cell); nb.classList.replace('jp-mod-commandMode', 'jp-mod-editMode'); });
+  return cell;
+}
+function run(cell) {
+  const code = editors.get(cell).getValue();
+  const out = cell.querySelector('.jp-OutputArea');
+  cell.querySelector('.jp-InputArea-prompt').textContent = '[' + (++counter) + ']:';
+  let mime = 'application/vnd.jupyter.stdout', text = '';
+  if (/1\s*\/\s*0/.test(code)) { mime = 'application/vnd.jupyter.stderr'; text = '---------------------------------------------------------------------------\nZeroDivisionError                         Traceback (most recent call last)\nCell In[2], line 1\n----> 1 y = 1/0\n\nZeroDivisionError: division by zero'; }
+  else if (code.includes('NBAC_FIXED')) text = 'NBAC_FIXED 1.0';
+  else if (code.includes('NBAC_OK')) text = 'NBAC_OK 42 True';
+  else if (/print\(x \+ 1\)/.test(code)) text = '42';
+  out.innerHTML = '';
+  const o = document.createElement('div');
+  o.className = 'lm-Widget p-Widget jp-RenderedText jp-mod-trusted jp-OutputArea-output';
+  o.setAttribute('data-mime-type', mime);
+  const pre = document.createElement('pre'); pre.textContent = text; o.appendChild(pre); out.appendChild(o);
+}
+toolbar.addEventListener('click', (e) => {
+  const b = e.target.closest('button'); if (!b) return;
+  const cur = nb.querySelector('.jp-Cell.jp-mod-active');
+  if (b.dataset.command === 'notebook:insert-cell-below') { const c = makeCell('', cur); activate(c); }
+});
+document.addEventListener('keydown', (e) => {
+  const cell = e.target.closest && e.target.closest('.jp-Cell');
+  if (cell && e.key === 'Enter' && e.shiftKey) { e.preventDefault(); e.stopPropagation(); run(cell); }
+}, true);
+require.config({ paths: { vs: '/vs' } });
+require(['vs/editor/editor.main'], function () {
+  window.__fixtureMonaco = window.monaco;
+  try { delete window.monaco; } catch (e) { window.monaco = undefined; }
+  const c1 = makeCell('x = 41\nprint(x + 1)'); run(c1);
+  const c2 = makeCell('y = 1/0'); run(c2); activate(c2);
+  window.__fixtureReady = true;
+});
+</script>
+</body></html>

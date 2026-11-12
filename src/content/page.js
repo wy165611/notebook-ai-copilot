@@ -58,16 +58,26 @@
     return null;
   }
 
+  function monacoInstance(monacoEl) {
+    const m = window.monaco;
+    if (!m || !m.editor || !m.editor.getEditors) return null;
+    return m.editor.getEditors().find((e) => { const d = e.getDomNode && e.getDomNode(); return d && (d === monacoEl || monacoEl.contains(d) || d.contains(monacoEl)); }) || null;
+  }
+
   function getEditorText(root) {
     if (!root) return '';
     const view = cm6View(root);
     if (view) return view.state.doc.toString();
     const cm5 = root.matches && root.matches('.CodeMirror') ? root : root.querySelector('.CodeMirror');
     if (cm5 && cm5.CodeMirror) return cm5.CodeMirror.getValue();
-    const monacoEl = root.querySelector('.monaco-editor');
-    if (monacoEl && window.monaco && window.monaco.editor) {
-      const ed = window.monaco.editor.getEditors?.().find((e) => monacoEl.contains(e.getDomNode()));
+    const monacoEl = root.matches('.monaco-editor') ? root : root.querySelector('.monaco-editor');
+    if (monacoEl) {
+      const ed = monacoInstance(monacoEl);
       if (ed) return ed.getValue();
+      // 没有全局 monaco（如飞桨 AI Studio 的 BML Codelab）：读渲染出来的行。
+      // Monaco 用 &nbsp; 渲染空格；超长单元格只渲染可见的行
+      const vl = monacoEl.querySelectorAll('.view-lines .view-line');
+      return Array.from(vl).map((l) => l.textContent.replace(/\u00a0/g, ' ')).join('\n');
     }
     const lines = root.querySelectorAll('.cm-line');
     if (lines.length) return Array.from(lines).map((l) => l.textContent).join('\n');
@@ -86,10 +96,24 @@
     }
     const cm5 = root.matches && root.matches('.CodeMirror') ? root : root.querySelector('.CodeMirror');
     if (cm5 && cm5.CodeMirror) { cm5.CodeMirror.setValue(text); return 'cm5'; }
-    const monacoEl = root.querySelector('.monaco-editor');
-    if (monacoEl && window.monaco && window.monaco.editor) {
-      const ed = window.monaco.editor.getEditors?.().find((e) => monacoEl.contains(e.getDomNode()));
+    const monacoEl = root.matches('.monaco-editor') ? root : root.querySelector('.monaco-editor');
+    if (monacoEl) {
+      const ed = monacoInstance(monacoEl);
       if (ed) { ed.setValue(text); return 'monaco'; }
+      // 没有全局 monaco：对 Monaco 的隐藏 textarea 发一个“粘贴”事件（粘贴不会触发自动补括号）
+      const ta = monacoEl.querySelector('textarea.inputarea, textarea, .native-edit-context');
+      if (!ta) throw new Error('找不到 Monaco 编辑器的输入区');
+      ta.focus();
+      if (getEditorText(monacoEl).trim()) {
+        key(ta, 'a', { ctrlKey: !/Mac/.test(navigator.platform), metaKey: /Mac/.test(navigator.platform) });
+      }
+      const dt = new DataTransfer();
+      dt.setData('text/plain', text);
+      ta.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
+      await sleep(120);
+      const got = getEditorText(monacoEl);
+      if (got.trim().split('\n')[0] !== text.trim().split('\n')[0]) throw new Error('写入 Monaco 编辑器失败');
+      return 'monaco-paste';
     }
     // 兜底：模拟用户输入（CodeMirror 6 会处理 beforeinput/insertText）
     const ce = (root.matches('[contenteditable="true"],textarea') ? root : null) ||
@@ -201,10 +225,10 @@
       if (!ok && document.hasFocus()) {
         // 命令模式下按 B。JupyterLab 的这个快捷键要求目标元素处于 :focus，
         // 所以只有页面（frame）本身有焦点时才有效
-        const ed = oldActive && oldActive.querySelector('.cm-content');
+        const ed = oldActive && oldActive.querySelector('.cm-content, .monaco-editor textarea, .monaco-editor .native-edit-context');
         if (nb.classList.contains('jp-mod-editMode') && ed) key(ed, 'Escape');
         await sleep(150);
-        let t = nb.contains(document.activeElement) && !document.activeElement.matches('.cm-content') ? document.activeElement : null;
+        let t = nb.contains(document.activeElement) && !document.activeElement.matches('.cm-content, textarea') ? document.activeElement : null;
         if (!t) {
           t = oldActive || nb;
           if (!t.hasAttribute('tabindex')) t.setAttribute('tabindex', '-1');
@@ -226,7 +250,7 @@
       });
       if (!cell) throw new Error('找不到新插入的单元格');
       cell.scrollIntoView({ block: 'center' });
-      const ed = await waitFor(() => cell.querySelector('.cm-content, .CodeMirror, textarea'));
+      const ed = await waitFor(() => cell.querySelector('.cm-content, .CodeMirror, .monaco-editor textarea, .monaco-editor .native-edit-context, textarea'));
       if (!ed) throw new Error('新单元格的编辑器没有加载');
       const how = await setEditorText(cell.querySelector('.jp-InputArea-editor') || cell, code);
       return { inserted: true, via: via + '+' + how };
@@ -241,7 +265,7 @@
       const btn = this.toolbarButton('notebook:run-cell-and-select-next') || this.toolbarButton('notebook:run-cell');
       if (btn) { press(btn); return { ran: true, via: 'toolbar-button' }; }
       const cell = this.activeCellNode();
-      const target = cell && (cell.querySelector('.cm-content') || cell);
+      const target = cell && (cell.querySelector('.cm-content, .monaco-editor textarea, .monaco-editor .native-edit-context, .CodeMirror textarea') || cell);
       if (target && target.focus) target.focus();
       key(target, 'Enter', { shiftKey: true });
       return { ran: true, via: 'keyboard' };
@@ -358,7 +382,7 @@
 
   function platformName() {
     const h = location.hostname;
-    if (/aistudio\.baidu\.com$/.test(h)) return '飞桨 AI Studio';
+    if (/(^|\.)aistudio\.baidu\.(com|test)$/.test(h)) return '飞桨 AI Studio';
     if (/modelscope\.cn$/.test(h) || /data\.aliyun\.com$/.test(h)) return 'ModelScope';
     if (/kaggle/.test(h)) return 'Kaggle';
     if (window.__nbacForceKaggle) return 'Kaggle';
@@ -375,7 +399,14 @@
   const handlers = {
     detect() {
       const a = pickAdapter();
-      if (!a) return { detected: false, platform: platformName() };
+      if (!a) {
+        const r = { detected: false, platform: platformName() };
+        // 飞桨 AI Studio 外层的项目编辑器（/project/edit/…）不是 JupyterLab，提示进入 BML Codelab
+        if (r.platform === '飞桨 AI Studio' && window.top === window && /\/project\/(edit|detail)\//.test(location.pathname)) {
+          r.hint = '这是 AI Studio 外层的项目编辑器，暂不支持。请点击「专业开发」打开 BML Codelab 后使用';
+        }
+        return r;
+      }
       const nb = a === jupyterLab ? jupyterLab.notebookNode() : null;
       const cellCount = nb ? nb.querySelectorAll('.jp-Cell').length : (a === kaggle ? kaggle.editors().length : 0);
       return { detected: true, platform: platformName(), kind: a.kind, cellCount, viaApp: a === jupyterLab && !!jupyterLab.panelWidget() };

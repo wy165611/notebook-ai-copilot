@@ -86,7 +86,44 @@ PASS [kaggle] 修复后的单元格在 iframe 里运行成功（NBAC_FIXED 1.0�
 PASS [kaggle] 工具栏被隐藏时仍能插入并运行（用隐藏的工具栏按钮）  [已插入新单元格并开始运行（toolbar-button+cm6）]
 PASS [kaggle] 没有任何按钮时用快捷键/底部添加区插入并用 Shift+Enter 运行  [已插入新单元格并开始运行（notebook-footer(末尾)+cm6，找不到“在下方插入”，已加到 Notebook 末尾）]
 
+=== 飞桨 AI Studio（BML Codelab 宿主页 + #jupyterlab-frame + VS Code 诱饵） ===
+PASS [aistudio] #jupyterlab-frame 与宿主页同源
+PASS [aistudio] 页面里有 VS Code 诱饵 frame 和嵌套 webview  [http://aistudio.baidu.test:8770/bj-cpu-01/user/123/456/home#codelab | http://aistudio.baidu.test:8770/bj-cpu-01/user/123/456/vscode/ | http://aistudio.baidu.test:8770/bj-cpu-01/user/123/456/lab/tree/test.ipynb | http://aistudio.baidu.test:8770/bj-cpu-01/user/123/456/vscode/webview.html | about:blank | about:blank]
+PASS [aistudio] iframe 里没有暴露 window.jupyterapp
+PASS [aistudio] JupyterLab 是中文界面（按钮标题为中文）  [下方插入单元格 (B)]
+PASS [aistudio] 连上 #jupyterlab-frame（平台识别为飞桨 AI Studio）  [已连接：飞桨 AI Studio（jupyterlab，内嵌 frame）]
+PASS [aistudio] 宿主页、VS Code frame 和 webview 都回报“不是 Notebook”  [frame 15: jupyterlab 3 个单元格  http://aistudio.baidu.test:8770/bj-cpu-01/user/123/456/lab/tree/test.ipynb | frame 14: 不是 Notebook  http://aistudio.baidu.test:8770/bj-cpu-01/user/123/456/vscode/ | frame 16: 不是 Notebook  http://aistudio.baidu.test:8770/bj-cpu-01/user/123/456/vscode/webview.html | frame 0(top): 不是 Notebook  http://aistudio.baidu.test:8770/bj-cpu-01/user/123/456/home#codelab]
+PASS [aistudio] 读取单元格代码和报错
+PASS [aistudio] 系统提示带清华镜像（国内平台）
+PASS [aistudio] 插入新单元格并写入代码  [已插入到新单元格（toolbar-button+cm6），检查无误后在 Notebook 里运行]
+PASS [aistudio] 运行前要确认
+PASS [aistudio] 确认后插入并运行，输出 NBAC_OK 42 True  [已插入新单元格并开始运行（toolbar-button+cm6）]
+PASS [aistudio] 修复报错后运行成功（NBAC_FIXED 1.0）  [已插入新单元格并开始运行（toolbar-button+cm6）]
+PASS [aistudio] 工具栏被隐藏时仍能插入并运行（用隐藏的工具栏按钮）  [已插入新单元格并开始运行（toolbar-button+cm6）]
+PASS [aistudio] 没有任何按钮时用快捷键/底部添加区插入并用 Shift+Enter 运行  [已插入新单元格并开始运行（keyboard+cm6）]
+
+=== 飞桨 AI Studio Monaco 单元格（真实 DOM 结构夹具，运行为假） ===
+PASS [monaco] 夹具里没有全局 window.monaco
+PASS [monaco] 检测到 Notebook  [已连接：飞桨 AI Studio（jupyterlab，内嵌 frame）]
+PASS [monaco] 从 Monaco 单元格读到代码和报错  [请修复下面这个单元格的报错，输出修好后的完整单元格。
+
+当前单元格代码：
+```python
+y = 1/0
+```
+
+最近的报错输出：
+```
+-----------------------------------------------]
+PASS [monaco] 用中文标题的单元格工具栏按钮插入，并通过粘贴写入 Monaco（内容完全一致，没有多出括号）  [已插入新单元格并开始运行（toolbar-button+monaco-paste） | x = 1 / 1  # 除数改成非 0
+print("NBAC_FIXED", x)
+]
+PASS [monaco] Shift+Enter 运行（夹具的假运行）
+
+=== 飞桨 AI Studio 外层项目编辑器 ===
+PASS [outer] 外层编辑器提示去「专业开发」打开 BML Codelab  [这是 AI Studio 外层的项目编辑器，暂不支持。请点击「专业开发」打开 BML Codelab 后使用]
+
 === 截图 ===
 PASS [demo] 截图用的运行也成功
 
-76/76 checks passed
+96/96 checks passed

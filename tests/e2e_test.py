@@ -44,7 +44,7 @@ def make_notebook(root):
     }
     (root / 'test.ipynb').write_text(json.dumps(nb))
 
-def start_lab(port, expose, frameable=False):
+def start_lab(port, expose, frameable=False, base_url=None, zh=False):
     root = pathlib.Path(tempfile.mkdtemp(prefix=f'nbac-lab-{port}-'))
     make_notebook(root)
     args = [PY, '-m', 'jupyterlab', '--no-browser', f'--port={port}', '--ip=127.0.0.1',
@@ -56,8 +56,15 @@ def start_lab(port, expose, frameable=False):
         # 允许被另一个站点（仿 www.kaggle.com）用 iframe 嵌入，并接受仿 Kaggle 的 Host 头
         args += ['--ServerApp.allow_remote_access=True',
                  '--ServerApp.tornado_settings={"headers": {"Content-Security-Policy": "frame-ancestors *"}}']
+    if base_url:
+        args.append(f'--ServerApp.base_url={base_url}')
+    if zh:
+        # 中文界面（需要 jupyterlab-language-pack-zh-CN），模拟 AI Studio 的中文 JupyterLab
+        sd = pathlib.Path(tempfile.mkdtemp(prefix='nbac-labsettings-'))
+        (sd / 'overrides.json').write_text(json.dumps({'@jupyterlab/translation-extension:plugin': {'locale': 'zh_CN'}}))
+        args.append(f'--LabApp.app_settings_dir={sd}')
     p = subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    wait_http(f'http://127.0.0.1:{port}/api/status')
+    wait_http(f'http://127.0.0.1:{port}{base_url or "/"}api/status')
     return p
 
 def mock_providers(**over):
@@ -425,6 +432,109 @@ def test_kaggle(ctx, sw):
     panel.screenshot(path=str(SHOT_DIR / 'kaggle-panel.png'))
     panel.close(); page.close()
 
+AIS = 'http://aistudio.baidu.test:%d' % 8770
+AIS_HOME = AIS + '/bj-cpu-01/user/123/456/home#codelab'
+
+def wait_frame(page, pred, what, timeout=60):
+    for _ in range(int(timeout * 2)):
+        for f in page.frames:
+            try:
+                if pred(f):
+                    return f
+            except Exception:
+                pass
+        time.sleep(0.5)
+    raise RuntimeError('frame not found: ' + what)
+
+def test_aistudio(ctx, sw):
+    """仿 BML Codelab：同源宿主页 + #vscode-frame 诱饵（含嵌套 iframe）+ #jupyterlab-frame（真实中文 JupyterLab 4，经同源反向代理，不暴露全局 app）。"""
+    print('\n=== 飞桨 AI Studio（BML Codelab 宿主页 + #jupyterlab-frame + VS Code 诱饵） ===', flush=True)
+    page = ctx.new_page()
+    page.set_viewport_size({'width': 1000, 'height': 900})
+    page.goto(AIS_HOME)
+    fr = wait_frame(page, lambda f: f.url.startswith(AIS + '/bj-cpu-01/user/123/456/lab') and f.query_selector('.jp-Notebook .jp-Cell .cm-content'), 'jupyterlab-frame')
+    check('[aistudio] #jupyterlab-frame 与宿主页同源', page.evaluate("() => !!document.getElementById('jupyterlab-frame').contentDocument"))
+    check('[aistudio] 页面里有 VS Code 诱饵 frame 和嵌套 webview', len([f for f in page.frames if '/vscode/' in f.url]) >= 2, ' | '.join(f.url for f in page.frames))
+    check('[aistudio] iframe 里没有暴露 window.jupyterapp', fr.evaluate("() => !window.jupyterapp && !window.jupyterlab"))
+    zh = fr.evaluate("() => (document.querySelector('[data-command=\"notebook:insert-cell-below\"]') || {}).title || ''")
+    check('[aistudio] JupyterLab 是中文界面（按钮标题为中文）', any('\u4e00' <= ch <= '\u9fff' for ch in zh), zh)
+    time.sleep(3)
+    cells = lambda: fr.query_selector_all('.jp-Notebook .jp-Cell .cm-content')
+    cells()[0].click(); page.keyboard.press('Shift+Enter')
+    fr.wait_for_function("() => [...document.querySelectorAll('.jp-OutputArea-output')].some(e => e.innerText.includes('42'))", timeout=60000)
+    cells()[1].click(); page.keyboard.press('Shift+Enter')
+    fr.wait_for_function("() => document.body.innerText.includes('ZeroDivisionError')", timeout=30000)
+    cells()[1].click()
+
+    panel = open_panel(ctx, sw, AIS + '/bj-cpu-01/*')
+    panel.set_viewport_size({'width': 420, 'height': 1000})
+    set_storage(panel, providers=mock_providers(), active='bailian', thinking='default', includeContext=True)
+    status = wait_status_ok(panel)
+    frames = panel.evaluate("() => document.getElementById('status').title")
+    check('[aistudio] 连上 #jupyterlab-frame（平台识别为飞桨 AI Studio）', '飞桨 AI Studio' in status and 'jupyterlab' in status and '内嵌 frame' in status, status)
+    chosen = [l for l in frames.split('\n') if 'jupyterlab ' in l]
+    check('[aistudio] 宿主页、VS Code frame 和 webview 都回报“不是 Notebook”', len(chosen) == 1 and '/456/lab' in chosen[0]
+          and all('不是 Notebook' in l for l in frames.split('\n') if l not in chosen), frames.replace('\n', ' | '))
+
+    code, _, _ = ask(panel, '配置好训练 YOLO11m 的环境')
+    L = last()
+    check('[aistudio] 读取单元格代码和报错', 'y = 1/0' in L.get('user', '') and 'ZeroDivisionError' in L.get('user', ''))
+    check('[aistudio] 系统提示带清华镜像（国内平台）', 'pypi.tuna.tsinghua.edu.cn' in L.get('system', ''))
+    msg = last_bot(panel)
+    n0 = fr.eval_on_selector_all('.jp-Notebook .jp-Cell', COUNT_JS)
+    r = click_and_wait_result(panel, msg, '.act-insert')
+    txt = fr.evaluate("() => { const c = document.querySelector('.jp-Notebook .jp-Cell.jp-mod-active .cm-content'); return c ? c.cmView.view.state.doc.toString() : ''; }")
+    check('[aistudio] 插入新单元格并写入代码', fr.eval_on_selector_all('.jp-Notebook .jp-Cell', COUNT_JS) == n0 + 1 and txt.strip() == code.strip(), r)
+    msg.query_selector('.act-run').click()
+    check('[aistudio] 运行前要确认', msg.query_selector('.confirm').is_visible())
+    r = click_and_wait_result(panel, msg, '.act-confirm')
+    check('[aistudio] 确认后插入并运行，输出 NBAC_OK 42 True', wait_text(fr, 'NBAC_OK 42 True'), r)
+    cells()[1].click()
+    code, _, _ = ask(panel, fix=True)
+    msg = last_bot(panel)
+    msg.query_selector('.act-run').click()
+    r = click_and_wait_result(panel, msg, '.act-confirm')
+    check('[aistudio] 修复报错后运行成功（NBAC_FIXED 1.0）', 'NBAC_FIXED' in code and wait_text(fr, 'NBAC_FIXED 1.0'), r)
+    fallback_checks('aistudio', fr, panel, msg, COUNT_JS, FIXED_N_JS)
+    page.screenshot(path=str(SHOT_DIR / 'aistudio-notebook.png'))
+    panel.screenshot(path=str(SHOT_DIR / 'aistudio-panel.png'))
+    panel.close(); page.close()
+
+def test_aistudio_monaco(ctx, sw):
+    """AI Studio 的单元格编辑器实际是 Monaco：用照抄真实 DOM 的夹具 + 真实 monaco-editor（不暴露 window.monaco）测读写。运行是假的。"""
+    print('\n=== 飞桨 AI Studio Monaco 单元格（真实 DOM 结构夹具，运行为假） ===', flush=True)
+    page = ctx.new_page()
+    page.set_viewport_size({'width': 1000, 'height': 900})
+    page.goto(AIS + '/bj-cpu-01/user/123/789/home#codelab')
+    fr = wait_frame(page, lambda f: f.url.endswith('/789/lab') and f.evaluate('() => !!window.__fixtureReady'), 'monaco fixture', 30)
+    check('[monaco] 夹具里没有全局 window.monaco', fr.evaluate("() => !window.monaco"))
+    panel = open_panel(ctx, sw, AIS + '/bj-cpu-01/user/123/789/*')
+    set_storage(panel, providers=mock_providers(), active='bailian', thinking='default', includeContext=True)
+    status = wait_status_ok(panel)
+    check('[monaco] 检测到 Notebook', '飞桨 AI Studio' in status and 'jupyterlab' in status, status)
+    code, _, _ = ask(panel, fix=True)
+    L = last()
+    check('[monaco] 从 Monaco 单元格读到代码和报错', 'y = 1/0' in L.get('user', '') and 'ZeroDivisionError' in L.get('user', ''), L.get('user', '')[:120])
+    msg = last_bot(panel)
+    n0 = fr.eval_on_selector_all('.jp-Cell', COUNT_JS)
+    msg.query_selector('.act-run').click()
+    r = click_and_wait_result(panel, msg, '.act-confirm')
+    val = fr.evaluate("() => { const c = document.querySelector('.jp-Cell.jp-mod-active'); return c ? window.__fixtureMonaco.editor.getEditors().find(e => c.contains(e.getDomNode())).getValue() : ''; }")
+    check('[monaco] 用中文标题的单元格工具栏按钮插入，并通过粘贴写入 Monaco（内容完全一致，没有多出括号）', fr.eval_on_selector_all('.jp-Cell', COUNT_JS) == n0 + 1 and val.strip() == code.strip() and 'monaco-paste' in r, r + ' | ' + val[:80])
+    check('[monaco] Shift+Enter 运行（夹具的假运行）', wait_text(fr, 'NBAC_FIXED 1.0', 10000))
+    page.screenshot(path=str(SHOT_DIR / 'aistudio-monaco.png'))
+    panel.close(); page.close()
+
+def test_aistudio_outer(ctx, sw):
+    print('\n=== 飞桨 AI Studio 外层项目编辑器 ===', flush=True)
+    page = ctx.new_page()
+    page.goto(AIS + '/project/edit/10871106')
+    panel = open_panel(ctx, sw, AIS + '/project/*')
+    panel.wait_for_selector('#status.bad', timeout=15000)
+    st = panel.inner_text('#status')
+    check('[outer] 外层编辑器提示去「专业开发」打开 BML Codelab', '请点击「专业开发」打开 BML Codelab 后使用' in st, st)
+    panel.close(); page.close()
+
 def test_options(ctx, sw):
     print('\n=== 设置页 ===', flush=True)
     ext_id = sw.url.split('/')[2]
@@ -476,21 +586,24 @@ def screenshot_demo(ctx, sw):
 def main():
     ext = subprocess.check_output([PY, str(HERE / 'build_test_ext.py')], text=True).strip()
     mock = subprocess.Popen([PY, str(HERE / 'mock_server.py'), str(MOCK_PORT)])
-    labs = [start_lab(8899, False), start_lab(8900, True), start_lab(8901, False, frameable=True)]
+    labs = [start_lab(8899, False), start_lab(8900, True), start_lab(8901, False, frameable=True),
+            start_lab(8902, False, base_url='/bj-cpu-01/user/123/456/', zh=True)]
+    labs.append(subprocess.Popen([PY, str(HERE / 'aistudio_proxy.py'), '8770', '8902']))
     try:
         wait_http(MOCK + '/last')
+        wait_http('http://127.0.0.1:8770/bj-cpu-01/user/123/456/home')
         with sync_playwright() as pw:
             udd = tempfile.mkdtemp(prefix='nbac-chrome-')
             ctx = pw.chromium.launch_persistent_context(udd, headless=False, args=[
                 f'--disable-extensions-except={ext}', f'--load-extension={ext}',
                 '--disable-background-timer-throttling', '--disable-renderer-backgrounding',
                 '--disable-backgrounding-occluded-windows', '--window-size=1100,1000', '--window-position=0,0',
-                '--host-resolver-rules=MAP *.kaggle.test 127.0.0.1, MAP *.kagglenet.test 127.0.0.1'])
+                '--host-resolver-rules=MAP *.kaggle.test 127.0.0.1, MAP *.kagglenet.test 127.0.0.1, MAP aistudio.baidu.test 127.0.0.1'])
             sw = ctx.service_workers[0] if ctx.service_workers else ctx.wait_for_event('serviceworker')
             for t in (test_options, test_models_and_thinking,
                       lambda c, s: test_jupyterlab(c, s, 8899, 'dom'),
                       lambda c, s: test_jupyterlab(c, s, 8900, 'app'),
-                      test_kaggle, screenshot_demo):
+                      test_kaggle, test_aistudio, test_aistudio_monaco, test_aistudio_outer, screenshot_demo):
                 try:
                     t(ctx, sw)
                 except Exception as e:

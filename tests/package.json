@@ -1,0 +1,6 @@
+{
+  "name": "nbac-tests",
+  "private": true,
+  "description": "测试依赖：Monaco 编辑器（模拟飞桨 AI Studio BML Codelab 的 Monaco 单元格）",
+  "devDependencies": { "monaco-editor": "0.57.0" }
+}

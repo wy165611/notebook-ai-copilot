@@ -8,11 +8,15 @@
    检测 Notebook → 读取当前单元格和报错 → 生成代码预览 → 只插入不运行 → “插入并运行”必须先确认 → 运行并看到输出 → “修复报错” → 去掉工具栏后用快捷键兜底 → OpenAI 兼容接口；
 3. Kaggle：`kaggle_top.html` 仿 www.kaggle.com 的顶层页面（结构来自真实已登录 Kaggle 的 DOM 抓取），里面的 `iframe name="notebook-editor-cells"` 来自**另一个站点**，嵌的是本机真实 JupyterLab 4（不暴露 `window.jupyterapp`）。用 Chromium 的 `--host-resolver-rules` 把 `www.kaggle.test`、`kkb-production.jupyter-proxy.kagglenet.test` 指向本机。验证：顶层回报“不是 Notebook”、侧边栏连到 iframe、读代码和报错、插入、确认后运行、修复报错、工具栏隐藏/按钮缺失时的兜底。
 
-测试用的扩展副本由 `build_test_ext.py` 生成到 `/tmp/nbac-test-ext`，只在副本里额外允许 `127.0.0.1/localhost`、`*.kaggle.test`/`*.kagglenet.test` 和 `tabs` 权限，**发布用的 manifest.json 不变**。
+测试用的扩展副本由 `build_test_ext.py` 生成到 `/tmp/nbac-test-ext`，只在副本里额外允许 `127.0.0.1/localhost`、`*.kaggle.test`/`*.kagglenet.test`、`aistudio.baidu.test` 和 `tabs` 权限，**发布用的 manifest.json 不变**。
+4. 飞桨 AI Studio（BML Codelab）：`aistudio_proxy.py`（aiohttp）在 `aistudio.baidu.test:8770` 上仿真实路径 `/bj-cpu-01/user/123/456/home#codelab` 出一个宿主页，同源嵌 `#vscode-frame`（诱饵，里面还有嵌套 webview iframe）和 `#jupyterlab-frame`，后者经反向代理（含 WebSocket）连到一个 `base_url` 相同、**中文界面**（`jupyterlab-language-pack-zh-CN`）、不暴露全局 app 的真实 JupyterLab 4。验证：只连 `#jupyterlab-frame`、其他 frame 都回报“不是 Notebook”、读代码和报错、清华镜像提示、插入、确认后运行、修复报错、工具栏隐藏/缺失兜底。
+   另外 `aistudio_monaco_fixture.html` 照抄真实 AI Studio 的单元格 DOM（中文标题的 `data-command` 单元格工具栏、Monaco 编辑器），用真实 `monaco-editor` 但删掉 `window.monaco`，验证从渲染行读代码、点工具栏插入、粘贴写入 Monaco、Shift+Enter 运行（运行是夹具里假的）。还验证外层项目编辑器 `/project/edit/…` 会提示去「专业开发」。
+
 侧边栏在测试里以独立弹窗（`index.html?tabId=…`）打开，界面和真正的侧边栏是同一个页面。
 
 ```bash
-python3 -m venv .venv && .venv/bin/pip install jupyterlab ipykernel playwright
+python3 -m venv .venv && .venv/bin/pip install jupyterlab ipykernel playwright aiohttp jupyterlab-language-pack-zh-CN
+(cd tests && npm install)                          # monaco-editor，给 AI Studio Monaco 夹具用
 .venv/bin/python -m playwright install chromium
 export PATH=$PWD/.venv/bin:$PATH
 xvfb-run -a -s "-screen 0 1920x1200x24" python tests/e2e_test.py   # 默认 xvfb 屏幕太小；有桌面可直接运行

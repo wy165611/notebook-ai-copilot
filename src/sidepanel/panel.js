@@ -71,7 +71,8 @@ async function detect(attempt = 0) {
     $('status').title = reports.map((r) => `frame ${r.frameId}${r.top ? '(top)' : ''}: ${r.detected ? r.kind + ' ' + r.cellCount + ' 个单元格' : '不是 Notebook'}  ${String(r.url).split('?')[0]}`).join('\n');
     return target;
   }
-  setStatus('没有检测到 Notebook：打开 AI Studio / ModelScope / Kaggle 的 Notebook，加载完后点“+ → 重新检测”', 'bad');
+  const hint = reports.find((r) => r.hint);
+  setStatus(hint ? hint.hint : '没有检测到 Notebook：打开 AI Studio / ModelScope / Kaggle 的 Notebook，加载完后点“+ → 重新检测”', 'bad');
   $('status').title = reports.map((r) => `frame ${r.frameId}: 不是 Notebook  ${String(r.url).split('?')[0]}`).join('\n');
   // Notebook（尤其是 Kaggle 的 iframe）常常比页面晚加载：自动重试一会儿
   if (attempt < 20) detectRetry = setTimeout(() => detect(attempt + 1), 3000);
