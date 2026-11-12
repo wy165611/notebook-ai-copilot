@@ -30,12 +30,33 @@ WEBVIEW = """<!doctype html><html><body><div class="output">webview</div></body>
 MYNB = """<!doctype html><html lang="zh-CN"><body><h1>我的 Notebook</h1><button>启动</button></body></html>"""
 
 
+# PAI-DSW 的 WebIDE（VS Code）：dsw-gateway-*.data.aliyun.test/dsw-2367657/ide/，同一个网关下还有 JupyterLab 的 Jupyter 服务（/dsw-2367657/api/...）
+DSW_BASE = '/dsw-2367657/'
+DSW_LAB_PORT = 8904
+DSW_TOP = """<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><title>DSW · WebIDE</title>
+<style>body{margin:0}.page{display:flex;flex-direction:column;height:100vh}.hdr{height:36px;border-bottom:1px solid #ddd;font:13px sans-serif;padding:8px}
+iframe.ide{flex:1;border:0;width:100%}</style></head>
+<body><div class="page"><div class="hdr">PAI-DSW · dsw-2367657 · 实例规格 ecs.c7a.2xlarge（CPU：AMD EPYC 7T83 64-Core Processor，8 vCPU 32 GiB） · <button>Notebook</button> <button>WebIDE</button> <button>Terminal</button></div>
+<iframe src="{{base}}ide/notebook/main.html?lang=zh-CN{{extra}}" title="webide" class="ide" frameborder="0"></iframe>
+</div></body></html>"""
+
+
 async def handle(request):
     path = request.path
     port = str(request.app['port'])
     host = request.host.split(':')[0]
     if host.startswith('g.alicdn'):
         return web.Response(text=WEBVIEW, content_type='text/html')
+    if host.endswith('.data.aliyun.test') and path.startswith(DSW_BASE):
+        if path in (DSW_BASE + 'ide', DSW_BASE + 'ide/'):
+            extra = ''.join('&%s=%s' % (k, v) for k, v in request.query.items() if k in ('kernel',))
+            return web.Response(text=DSW_TOP.replace('{{base}}', DSW_BASE).replace('{{extra}}', extra), content_type='text/html')
+        if path == DSW_BASE + 'ide/notebook/main.html':
+            return web.Response(text=(HERE / 'modelscope_workbench.html').read_text().replace('{{port}}', port), content_type='text/html')
+        if path.startswith(DSW_BASE + 'api/') and not request.app.get('dsw_noapi'):
+            import aistudio_proxy
+            aistudio_proxy.LAB_PORT = DSW_LAB_PORT
+            return await aistudio_proxy.proxy(request)
     if path == '/code/workspace':
         extra = ''.join('&%s=%s' % (k, v) for k, v in request.query.items() if k in ('readable', 'nopaste', 'nowrite', 'kernel', 'empty', 'hover', 'zh', 'nobuttons', 'noinsert'))
         return web.Response(text=TOP.replace('{{extra}}', extra).replace('{{port}}', port), content_type='text/html')

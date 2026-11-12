@@ -57,6 +57,10 @@ function run(cell) {
   cell.querySelector('.jp-InputArea-prompt').textContent = '[' + (++counter) + ']:';
   let mime = 'application/vnd.jupyter.stdout', text = '';
   if (/1\s*\/\s*0/.test(code)) { mime = 'application/vnd.jupyter.stderr'; text = '---------------------------------------------------------------------------\nZeroDivisionError                         Traceback (most recent call last)\nCell In[2], line 1\n----> 1 y = 1/0\n\nZeroDivisionError: division by zero'; }
+  else if (code.includes('NBAC_BOOM')) { mime = 'application/vnd.jupyter.stderr'; text = 'NBAC_BEFORE_BOOM\n---------------------------------------------------------------------------\nValueError                                Traceback (most recent call last)\nCell In[5], line 2\n----> 2 raise ValueError("NBAC_BOOM")\n\nValueError: NBAC_BOOM'; }
+  else if (/^%%bash/.test(code) && code.includes('NBAC_BASH_ERR')) { mime = 'application/vnd.jupyter.stderr'; text = 'NBAC_BASH_OUT\nNBAC_BASH_ERR\n---------------------------------------------------------------------------\nCalledProcessError                        Traceback (most recent call last)\nCalledProcessError: Command \'b\'echo...\'\' returned non-zero exit status 3.'; }
+  else if (/^%%bash/.test(code) && code.includes('NBAC_BASH')) text = 'NBAC_BASH 42';
+  else if (code.includes('NBAC_NEXT')) text = 'NBAC_NEXT 42';
   else if (code.includes('NBAC_FIXED')) text = 'NBAC_FIXED 1.0';
   else if (code.includes('NBAC_OK')) text = 'NBAC_OK 42 True';
   else if (/print\(x \+ 1\)/.test(code)) text = '42';

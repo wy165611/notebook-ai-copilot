@@ -1,8 +1,9 @@
 import {
   PRESETS, PROVIDER_IDS, THINKING_LEVELS, loadSettings, saveSettings, updateProvider,
   supportedThinking, listModels, generate, buildUserMessage, extractCode, extractShell, bashCell,
-  MODE_LABELS, normalizeMode
+  MODE_LABELS, normalizeMode, attachmentKind, prepareTextAttachment, MAX_FILE_CHARS
 } from '../lib/llm.js';
+import { ERR_READ_CODE, parseErrLine } from '../lib/errread.js';
 import { PROBE_CODE, AUTO_PROBE_CODE, parseProbeOutput, mergeHardware, hardwareLabel } from '../lib/hardware.js';
 import { MAIN_SCRIPTS, ISOLATED_SCRIPTS, classifyInjectError, originPattern, isInternalUrl } from '../lib/inject.js';
 
@@ -270,6 +271,7 @@ function renderBar() {
   $('thinkBtn').classList.toggle('with-label', level !== 'default');
   $('thinkBtn').title = '思考强度：' + lbl;
   $('includeContext').checked = !!settings.includeContext;
+  $('autoFix').checked = !!settings.autoFix;
   $('ctxChip').hidden = !settings.includeContext;
   $('plusBtn').classList.toggle('active', !!settings.includeContext);
   if (!c.apiKey) showNotice(`「${p.label}」还没有填写 API Key，点右上角 ⋮ 打开设置。`);
@@ -373,44 +375,112 @@ function el(tag, cls, html) { const e = document.createElement(tag); if (cls) e.
 function escapeHtml(s) { return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
 function scrollDown() { const c = $('chat'); c.scrollTop = c.scrollHeight; }
 
-// ---------- 聊天记录：保存在 chrome.storage.local（不含 API Key），重新打开侧边栏、换网页后都还在 ----------
-const CHAT_KEY = 'nbacChatHistory';
-const CHAT_MAX = 200;
+// ---------- 对话记录：像 Gemini 网页版一样保存多个对话（chrome.storage.local，不含 API Key） ----------
+// nbacConvIndex = {currentId, list:[{id, title, createdAt, updatedAt, count}]}，每个对话的消息存在 nbacConv:<id>
+const CONV_INDEX = 'nbacConvIndex';
+const CONV_PREFIX = 'nbacConv:';
+const OLD_CHAT_KEY = 'nbacChatHistory'; // 0.1.13 的单一聊天记录，打开时迁移成一个对话
+const CONV_MAX = 100;
+const MSG_MAX = 200;
 const LLM_MAX = 12000; // 每条发给模型的上下文最多存这么多字
-let chatLog = []; // [{id, role:'user'|'bot', mode, text, code, meta, info, error, llm, ts}]
+let convIndex = { currentId: null, list: [] };
+let chatLog = []; // 当前对话的消息 [{id, role:'user'|'bot', mode, text, code, meta, info, error, llm, attachments, ts}]
 let chatSave = Promise.resolve();
 function newId() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
+const validMsg = (r) => r && r.id && (r.role === 'user' || r.role === 'bot');
+function titleFrom(msgs) {
+  const u = (msgs || []).find((r) => r.role === 'user' && (r.text || '').trim());
+  const t = u ? u.text.replace(/\s+/g, ' ').trim() : '';
+  return t ? (t.length > 30 ? t.slice(0, 30) + '…' : t) : '新对话';
+}
+async function loadMessages(id) {
+  const v = (await chrome.storage.local.get(CONV_PREFIX + id))[CONV_PREFIX + id];
+  return Array.isArray(v) ? v.filter(validMsg) : [];
+}
 async function loadChat() {
   try {
-    const v = (await chrome.storage.local.get(CHAT_KEY))[CHAT_KEY];
-    chatLog = Array.isArray(v) ? v.filter((r) => r && r.id && (r.role === 'user' || r.role === 'bot')) : [];
-  } catch { chatLog = []; }
+    const st = await chrome.storage.local.get([CONV_INDEX, OLD_CHAT_KEY]);
+    let idx = st[CONV_INDEX];
+    if (!idx || !Array.isArray(idx.list)) {
+      idx = { currentId: null, list: [] };
+      const old = Array.isArray(st[OLD_CHAT_KEY]) ? st[OLD_CHAT_KEY].filter(validMsg).slice(-MSG_MAX) : [];
+      if (old.length) {
+        const id = newId();
+        idx.list.push({ id, title: titleFrom(old), createdAt: old[0].ts || Date.now(), updatedAt: old[old.length - 1].ts || Date.now(), count: old.length });
+        idx.currentId = id;
+        await chrome.storage.local.set({ [CONV_PREFIX + id]: old });
+      }
+      await chrome.storage.local.set({ [CONV_INDEX]: idx });
+      await chrome.storage.local.remove(OLD_CHAT_KEY);
+    }
+    if (idx.currentId && !idx.list.some((c) => c.id === idx.currentId)) idx.currentId = null;
+    convIndex = idx;
+    chatLog = idx.currentId ? await loadMessages(idx.currentId) : [];
+  } catch { convIndex = { currentId: null, list: [] }; chatLog = []; }
 }
-function saveChat() {
-  if (chatLog.length > CHAT_MAX) {
-    const drop = new Set(chatLog.slice(0, chatLog.length - CHAT_MAX).map((r) => r.id));
-    chatLog = chatLog.slice(-CHAT_MAX);
-    for (const id of drop) { const e = document.querySelector(`.msg[data-id="${id}"]`); if (e) e.remove(); }
-  }
-  const snap = chatLog.slice();
-  chatSave = chatSave.then(() => chrome.storage.local.set({ [CHAT_KEY]: snap })).catch(() => {});
+function saveIndex() {
+  const snap = JSON.parse(JSON.stringify(convIndex));
+  chatSave = chatSave.then(() => chrome.storage.local.set({ [CONV_INDEX]: snap })).catch(() => {});
   return chatSave;
 }
-function record(rec) { const r = { id: newId(), ts: Date.now(), ...rec }; chatLog.push(r); saveChat(); return r; }
-function updateRecord(r, patch) { Object.assign(r, patch); if (chatLog.includes(r)) saveChat(); }
-function deleteRecord(id) {
-  chatLog = chatLog.filter((r) => r.id !== id);
-  const e = document.querySelector(`.msg[data-id="${id}"]`);
-  if (e) e.remove();
-  if (!$('messages').children.length) $('welcome').hidden = false;
-  return saveChat();
+// 保存一个对话的消息；存储满了就删掉最旧的对话再试
+function saveMessages(id, msgs) {
+  const snap = msgs.slice(-MSG_MAX);
+  chatSave = chatSave.then(async () => {
+    for (let i = 0; i < 5; i++) {
+      try { await chrome.storage.local.set({ [CONV_PREFIX + id]: snap }); return; } catch (e) {
+        const others = convIndex.list.filter((c) => c.id !== id).sort((a, b) => a.updatedAt - b.updatedAt);
+        if (!others.length) return;
+        convIndex.list = convIndex.list.filter((c) => c.id !== others[0].id);
+        await chrome.storage.local.remove(CONV_PREFIX + others[0].id).catch(() => {});
+        await chrome.storage.local.set({ [CONV_INDEX]: convIndex }).catch(() => {});
+      }
+    }
+  }).catch(() => {});
+  return chatSave;
 }
-async function clearChat() {
-  chatLog = [];
-  $('messages').innerHTML = ''; $('welcome').hidden = false; $('clearConfirm').hidden = true; showNotice('');
-  await saveChat();
+function touchConv(id, msgs) {
+  const c = convIndex.list.find((x) => x.id === id);
+  if (!c) return;
+  c.updatedAt = Date.now(); c.count = msgs.length;
+  if (!c.renamed) c.title = titleFrom(msgs);
+  // 最多保留 CONV_MAX 个对话：删掉最久没用的
+  if (convIndex.list.length > CONV_MAX) {
+    const drop = convIndex.list.slice().sort((a, b) => a.updatedAt - b.updatedAt).slice(0, convIndex.list.length - CONV_MAX).filter((x) => x.id !== convIndex.currentId);
+    for (const d of drop) chrome.storage.local.remove(CONV_PREFIX + d.id).catch(() => {});
+    const ids = new Set(drop.map((d) => d.id));
+    convIndex.list = convIndex.list.filter((x) => !ids.has(x.id));
+  }
 }
-// 发给模型的历史：只取完整的「用户 → 回答」对（删掉的消息不会再发给模型），最近 3 轮
+// 记一条消息。convId：发送时所在的对话（生成期间用户切到别的对话，回答仍记到原来的对话里）
+function record(rec, convId) {
+  const r = { id: newId(), ts: Date.now(), ...rec };
+  if (!convId) {
+    if (!convIndex.currentId) {
+      const id = newId();
+      convIndex.list.push({ id, title: '新对话', createdAt: Date.now(), updatedAt: Date.now(), count: 0 });
+      convIndex.currentId = id;
+    }
+    convId = convIndex.currentId;
+  }
+  if (convId === convIndex.currentId) {
+    chatLog.push(r);
+    if (chatLog.length > MSG_MAX) chatLog = chatLog.slice(-MSG_MAX);
+    touchConv(convId, chatLog); saveMessages(convId, chatLog); saveIndex();
+  } else if (convIndex.list.some((c) => c.id === convId)) {
+    chatSave = chatSave.then(async () => {
+      const msgs = (await loadMessages(convId)).concat(r);
+      touchConv(convId, msgs); saveMessages(convId, msgs); saveIndex();
+    }).catch(() => {});
+  }
+  r.convId = convId;
+  return r;
+}
+function updateRecord(r, patch) {
+  Object.assign(r, patch);
+  if (r.convId === convIndex.currentId && chatLog.includes(r)) saveMessages(r.convId, chatLog);
+}
+// 发给模型的历史：只用当前对话里完整的「用户 → 回答」对，最近 3 轮
 function llmHistory() {
   const out = [];
   for (let i = 0; i < chatLog.length - 1; i++) {
@@ -419,31 +489,168 @@ function llmHistory() {
   }
   return out.slice(-6);
 }
-function addDelete(m, rec) {
-  if (!rec) return;
-  m.dataset.id = rec.id;
-  const d = el('button', 'msg-del', '删除');
-  d.title = '删除这条消息（也不会再发给模型）';
-  d.addEventListener('click', (e) => { e.stopPropagation(); deleteRecord(rec.id); });
-  m.appendChild(d);
+async function openConversation(id) {
+  if (!convIndex.list.some((c) => c.id === id)) return;
+  convIndex.currentId = id;
+  chatLog = await loadMessages(id);
+  renderChatLog(); saveIndex(); closeDrawer(); showNotice('');
+}
+function newConversation() {
+  convIndex.currentId = null; chatLog = [];
+  renderChatLog(); saveIndex(); closeDrawer(); showNotice('');
+  $('prompt').focus();
+}
+async function deleteConversation(id) {
+  convIndex.list = convIndex.list.filter((c) => c.id !== id);
+  await chrome.storage.local.remove(CONV_PREFIX + id).catch(() => {});
+  if (convIndex.currentId === id) { convIndex.currentId = null; chatLog = []; renderChatLog(); }
+  await saveIndex();
+  renderDrawer();
+}
+async function deleteAllConversations() {
+  const keys = convIndex.list.map((c) => CONV_PREFIX + c.id);
+  convIndex = { currentId: null, list: [] }; chatLog = [];
+  await chrome.storage.local.remove(keys).catch(() => {});
+  await saveIndex();
+  renderChatLog(); renderDrawer();
+}
+async function renameConversation(id, title) {
+  const c = convIndex.list.find((x) => x.id === id);
+  if (!c || !title.trim()) return;
+  c.title = title.trim().slice(0, 60); c.renamed = true;
+  await saveIndex(); renderDrawer();
+}
+
+// ---------- 对话列表（左侧抽屉） ----------
+function fmtTime(ts) {
+  const d = new Date(ts), now = new Date();
+  const pad = (n) => String(n).padStart(2, '0');
+  return d.toDateString() === now.toDateString() ? `${pad(d.getHours())}:${pad(d.getMinutes())}` : `${d.getMonth() + 1}月${d.getDate()}日`;
+}
+function renderDrawer() {
+  const box = $('convList');
+  box.innerHTML = '';
+  const list = convIndex.list.slice().sort((a, b) => b.updatedAt - a.updatedAt);
+  $('convEmpty').hidden = list.length > 0;
+  $('convDeleteAll').disabled = !list.length;
+  for (const c of list) {
+    const item = el('div', 'conv-item' + (c.id === convIndex.currentId ? ' current' : ''));
+    item.dataset.id = c.id;
+    const main = el('button', 'conv-open');
+    main.appendChild(el('span', 'conv-title', escapeHtml(c.title || '新对话')));
+    main.appendChild(el('span', 'conv-time', escapeHtml(fmtTime(c.updatedAt) + (c.count ? ' · ' + c.count + ' 条' : ''))));
+    main.title = c.title || '';
+    main.addEventListener('click', () => openConversation(c.id));
+    const ren = el('button', 'conv-rename', '<svg viewBox="0 0 24 24"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>');
+    ren.title = '重命名';
+    const del = el('button', 'conv-del', '<svg viewBox="0 0 24 24"><path d="M6 19a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>');
+    del.title = '删除这个对话';
+    const confirm = el('div', 'conv-confirm');
+    confirm.hidden = true;
+    confirm.appendChild(el('span', null, '删除这个对话？'));
+    const yes = el('button', 'act danger conv-del-yes', '删除');
+    const no = el('button', 'act conv-del-no', '取消');
+    confirm.append(yes, no);
+    del.addEventListener('click', (e) => { e.stopPropagation(); confirm.hidden = false; });
+    no.addEventListener('click', (e) => { e.stopPropagation(); confirm.hidden = true; });
+    yes.addEventListener('click', (e) => { e.stopPropagation(); deleteConversation(c.id); });
+    ren.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const input = el('input', 'conv-rename-input');
+      input.value = c.title || '';
+      main.replaceWith(input); input.focus(); input.select();
+      const done = (save) => { if (save) renameConversation(c.id, input.value); else renderDrawer(); };
+      input.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') done(true); if (ev.key === 'Escape') done(false); });
+      input.addEventListener('blur', () => done(true));
+    });
+    const row = el('div', 'conv-row');
+    row.append(main, ren, del);
+    item.append(row, confirm);
+    box.appendChild(item);
+  }
+}
+function openDrawer() { closeMenus(); renderDrawer(); $('convAllConfirm').hidden = true; $('convDrawer').hidden = false; $('drawerMask').hidden = false; }
+function closeDrawer() { $('convDrawer').hidden = true; $('drawerMask').hidden = true; }
+
+// ---------- 聊天模式的附件（图片 / 文本类文件） ----------
+const MAX_ATTACH = 8;
+let pendingAtt = []; // [{id, kind:'image'|'file', name, size, dataUrl?, text?, truncated?, lang?}]
+function readAs(file, how) {
+  return new Promise((ok, bad) => { const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = () => bad(r.error); r[how](file); });
+}
+// 大图片缩到最长边 2048 像素（JPEG），避免请求太大
+async function shrinkImage(file, dataUrl) {
+  if (file.size < 1.5 * 1024 * 1024 || /gif/i.test(file.type)) return dataUrl;
+  try {
+    const bmp = await createImageBitmap(file);
+    const k = Math.min(1, 2048 / Math.max(bmp.width, bmp.height));
+    const c = document.createElement('canvas');
+    c.width = Math.round(bmp.width * k); c.height = Math.round(bmp.height * k);
+    c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
+    return c.toDataURL('image/jpeg', 0.85);
+  } catch { return dataUrl; }
+}
+async function addFiles(files) {
+  const bad = [];
+  for (const f of Array.from(files || [])) {
+    if (pendingAtt.length >= MAX_ATTACH) { bad.push(f.name + '（一次最多 ' + MAX_ATTACH + ' 个附件）'); continue; }
+    const kind = attachmentKind(f.name, f.type);
+    if (!kind) { bad.push(f.name + '（只支持图片和文本类文件）'); continue; }
+    try {
+      if (kind === 'image') {
+        if (f.size > 20 * 1024 * 1024) { bad.push(f.name + '（图片超过 20 MB）'); continue; }
+        const dataUrl = await shrinkImage(f, await readAs(f, 'readAsDataURL'));
+        pendingAtt.push({ id: newId(), kind, name: f.name || 'image.png', size: f.size, dataUrl, mime: f.type });
+      } else {
+        // 只读前面一部分：超过上限的文件会截断并注明
+        const raw = /\.ipynb$/i.test(f.name) ? await f.text() : await f.slice(0, MAX_FILE_CHARS * 4 + 16).text();
+        const a = prepareTextAttachment(f.name, raw);
+        if (!/\.ipynb$/i.test(f.name) && f.size > raw.length && !a.truncated) { a.text += '\n…（后面还有内容，文件太长已截断）'; a.truncated = true; }
+        pendingAtt.push({ id: newId(), ...a, size: f.size });
+      }
+    } catch (e) { bad.push(f.name + '（读取失败：' + (e && e.message || e) + '）'); }
+  }
+  renderAttachments();
+  if (bad.length) showNotice('没有添加：' + bad.join('；') + '。支持图片（png / jpg / webp / gif）和文本类文件（txt、md、py、ipynb、csv、json、yaml、log 等）。');
+}
+function renderAttachments() {
+  const box = $('attachChips');
+  box.innerHTML = '';
+  for (const a of pendingAtt) {
+    const chip = el('div', 'att-chip att-' + a.kind);
+    if (a.kind === 'image') { const img = el('img'); img.src = a.dataUrl; img.alt = ''; chip.appendChild(img); }
+    else chip.appendChild(el('span', 'att-icon', '<svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6zm4 18H6V4h7v5h5v11z"/></svg>'));
+    chip.appendChild(el('span', 'att-name', escapeHtml(a.name) + (a.truncated ? '（已截断）' : '')));
+    const x = el('button', 'att-remove', '×');
+    x.title = '移除这个附件';
+    x.addEventListener('click', (e) => { e.stopPropagation(); pendingAtt = pendingAtt.filter((p) => p.id !== a.id); renderAttachments(); });
+    chip.appendChild(x);
+    box.appendChild(chip);
+  }
+  box.hidden = !pendingAtt.length;
 }
 
 function addUser(text, rec) {
   $('welcome').hidden = true;
   const m = el('div', 'msg user');
-  if (rec) {
-    addDelete(m, rec);
-    if (rec.mode && rec.mode !== 'notebook') m.prepend(el('span', 'mode-tag', escapeHtml(MODE_LABELS[rec.mode] || '')));
+  const col = el('div', 'user-col');
+  const atts = rec && rec.attachments;
+  if (atts && atts.length) {
+    const row = el('div', 'msg-atts');
+    for (const a of atts) row.appendChild(el('span', 'msg-att', escapeHtml((a.kind === 'image' ? '🖼 ' : '📄 ') + a.name)));
+    col.appendChild(row);
   }
   const b = el('div', 'bubble'); b.textContent = text;
-  m.appendChild(b);
+  col.appendChild(b);
+  if (rec && rec.mode && rec.mode !== 'notebook') m.appendChild(el('span', 'mode-tag', escapeHtml(MODE_LABELS[rec.mode] || '')));
+  m.appendChild(col);
   $('messages').appendChild(m);
   scrollDown();
   return m;
 }
 
-function addThinking() {
-  const m = el('div', 'msg bot pending', '<div class="thinking"><span class="dot"></span>正在思考…</div>');
+function addThinking(text) {
+  const m = el('div', 'msg bot pending', '<div class="thinking"><span class="dot"></span><span class="thinking-text">' + escapeHtml(text || '正在思考…') + '</span></div>');
   $('messages').appendChild(m);
   scrollDown();
   return m;
@@ -492,11 +699,61 @@ function renderAnswer(text) {
   return box;
 }
 
+// ---------- 运行后自动读取结果：等单元格跑完，出错时提供「根据运行结果继续」（可选自动修复，但不会自动运行） ----------
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+async function watchRun(m, runId, setResult, base, mode) {
+  const t0 = Date.now();
+  let said = false;
+  while (m.isConnected && Date.now() - t0 < 6 * 3600 * 1000) {
+    await sleep(1500);
+    if (!m.isConnected) return;
+    let st;
+    try { st = await call('runStatus', { runId }); } catch { continue; }
+    if (!st || ['none', 'stale', 'gone', 'unsupported'].includes(st.state)) return;
+    if (st.state === 'pending' && Date.now() - t0 > 10 * 60 * 1000) return;
+    if (st.state === 'running' || st.state === 'pending') {
+      if (!said && Date.now() - t0 > 2500) { said = true; setResult(base + '。正在运行，跑完后会自动读取运行结果'); }
+      continue;
+    }
+    if (st.state === 'done') { showRunDone(m, st, setResult, base, mode); return; }
+  }
+}
+function showRunDone(m, st, setResult, base, mode) {
+  const err = !!st.error;
+  setResult(base + (err ? '。运行出错了' + (st.unreadable ? '（输出在单独的安全框里读不到，点下面的按钮会先自动读取报错）' : '') + '，可以点「根据运行结果继续」' : '。运行完成，可以点「根据运行结果继续」让我看输出、给下一步'), err);
+  const old = m.querySelector('.run-next');
+  if (old) old.remove();
+  const box = el('div', 'code-actions run-next');
+  const b = el('button', 'act act-continue ' + (err ? 'danger strong' : 'primary'), ICON.run + '根据运行结果继续');
+  b.title = '读取刚才运行的输出' + (err ? '和报错' : '') + '，生成下一步要运行的' + (mode === 'terminal' ? '命令' : '代码') + '（不会自动运行）';
+  b.addEventListener('click', () => { if (!busy) send(true, { run: st, mode }); });
+  box.appendChild(b);
+  m.appendChild(box);
+  scrollDown();
+  if (err && settings.autoFix && !busy) send(true, { run: st, mode, auto: true });
+}
+
+// VS Code 网页版：输出读不到时，插入并运行一个只读的「读取报错」单元格，让内核把上一次报错写回单元格文字
+async function readVsError(onStatus) {
+  let before = 0;
+  try { const r0 = await call('readErrorWriteBack', {}); before = (r0 && r0.count) || 0; } catch { /* ignore */ }
+  if (onStatus) onStatus('输出读不到，正在插入一个只读的「读取报错」单元格并运行…');
+  await call('insertCellBelow', { code: ERR_READ_CODE });
+  await call('runCell', {});
+  for (let i = 0; i < 30; i++) {
+    await sleep(2000);
+    let r;
+    try { r = await call('readErrorWriteBack', {}); } catch { continue; }
+    if (r && r.count > before) { const e = parseErrLine(r.line); if (e) return e; }
+  }
+  return null;
+}
+
 function renderBot(m, { text, code, meta, error, onRan, info, mode, rec }) {
   mode = normalizeMode(mode);
   m.className = 'msg bot' + (error ? ' err' : '') + ' mode-' + mode;
   m.innerHTML = '';
-  addDelete(m, rec);
+  if (rec) m.dataset.id = rec.id;
   if (meta) m.appendChild(el('div', 'meta', escapeHtml(meta)));
   if (error) { m.appendChild(el('div', 'text', escapeHtml(error))); return; }
   if (info) { m.appendChild(el('div', 'text hw-info', escapeHtml(info))); return; }
@@ -539,6 +796,8 @@ function renderBot(m, { text, code, meta, error, onRan, info, mode, rec }) {
     if (!ta.value.trim()) { setResult('没有可插入的代码', true); return; }
     const cellCode = term ? bashCell(ta.value) : ta.value;
     for (const b of btns) b.disabled = true;
+    const old = m.querySelector('.run-next');
+    if (old) old.remove();
     try {
       const r = await call('insertCellBelow', { code: cellCode });
       if (/footer|末尾/.test(r.via)) r.via += '，找不到“在下方插入”，已加到 Notebook 末尾';
@@ -556,8 +815,10 @@ function renderBot(m, { text, code, meta, error, onRan, info, mode, rec }) {
           return;
         }
         if (rr && rr.notice) showNotice(rr.notice);
-        setResult(`${where}并开始运行（${r.via}；运行：${rr && rr.via || '?'}）`);
+        const base = `${where}并开始运行（${r.via}；运行：${rr && rr.via || '?'}）`;
+        setResult(base);
         if (onRan) onRan(setResult);
+        else if (rr && rr.runId) watchRun(m, rr.runId, setResult, base, mode);
       } else setResult(`${intoEmpty ? where : '已插入到新单元格'}（${r.via}），检查无误后在 Notebook 里运行`);
     } catch (e) {
       // 插入或写入失败：把代码放到剪贴板，让用户手动粘贴；不运行
@@ -579,7 +840,7 @@ function renderBot(m, { text, code, meta, error, onRan, info, mode, rec }) {
   scrollDown();
 }
 
-// 打开侧边栏时把保存的聊天记录画出来（按钮照常能用）
+// 把当前对话的消息画出来（按钮照常能用）
 function renderChatLog() {
   $('messages').innerHTML = '';
   for (const r of chatLog) {
@@ -598,7 +859,7 @@ function renderChatLog() {
 const PLACEHOLDERS = {
   notebook: '需要我帮您构建什么？',
   terminal: '想在终端里做什么？例如：下载数据集并解压',
-  chat: '有什么问题想问？例如：显存不够怎么办'
+  chat: '有什么问题想问？可以点 + 添加图片或文件'
 };
 function currentMode() { return normalizeMode(settings && settings.mode); }
 function renderMode() {
@@ -610,6 +871,7 @@ function renderMode() {
   document.querySelectorAll('.chips[data-mode]').forEach((c) => { c.hidden = c.dataset.mode !== mode; });
   $('prompt').placeholder = PLACEHOLDERS[mode];
   document.body.dataset.mode = mode;
+  $('plusBtn').title = mode === 'chat' ? '添加图片或文件 / 附带上下文' : '附带上下文 / 修复报错 / 检测硬件';
 }
 async function setMode(mode) {
   mode = normalizeMode(mode);
@@ -617,10 +879,13 @@ async function setMode(mode) {
   await saveSettings({ mode });
 }
 
-async function send(fix) {
+// fix：读取当前单元格（或 opts.run：刚运行完的单元格）的运行结果，让模型给下一步 / 修复
+async function send(fix, opts = {}) {
   if (busy) return;
   const request = $('prompt').value.trim();
-  if (!fix && !request) return;
+  let mode = opts.mode ? normalizeMode(opts.mode) : currentMode();
+  const atts = !fix && mode === 'chat' ? pendingAtt.slice() : [];
+  if (!fix && !request && !atts.length) return;
   if (!fix && /NBAC_HW\s*\{/.test(request)) { // 用户把“检测硬件”的输出贴回来（输出读不到的平台）
     const hw = parseProbeOutput(request);
     addUser(request.slice(0, 300));
@@ -630,16 +895,18 @@ async function send(fix) {
     else renderBot(m, { error: '没看懂这行 NBAC_HW 输出，请完整复制那一行' });
     return;
   }
-  // 「修复当前报错」修的是 Python 单元格：终端模式下也按 Notebook 模式来修；聊天模式下解释原因并给出修法
-  let mode = currentMode();
-  if (fix && mode === 'terminal') mode = 'notebook';
   busy = true; $('send').disabled = true; closeMenus(); showNotice('');
-  const shown = fix ? (mode === 'chat' ? '解释当前报错' : '修复当前报错') + (request ? '：' + request : '') : request;
+  const label = opts.run ? (opts.auto ? '运行出错，自动根据运行结果修复' : '根据运行结果继续') : (mode === 'chat' ? '解释当前报错' : '修复当前报错');
+  const shown = fix ? label + (request ? '：' + request : '') : (request || '（发送了附件）');
   const history = llmHistory(); // 在记下这条消息之前取，避免把它自己算进去
-  const uRec = record({ role: 'user', mode, text: shown });
+  const attMeta = atts.map((a) => ({ kind: a.kind, name: a.name, size: a.size, truncated: !!a.truncated }));
+  const uRec = record({ role: 'user', mode, text: shown, attachments: attMeta.length ? attMeta : undefined });
+  const convId = uRec.convId;
   addUser(shown, uRec);
   $('prompt').value = ''; autoGrow();
+  if (atts.length) { pendingAtt = []; renderAttachments(); }
   const pending = addThinking();
+  const setPending = (t) => { const x = pending.querySelector('.thinking-text'); if (x) x.textContent = t; };
   try {
     await refreshSettings();
     const useCtx = settings.includeContext || fix;
@@ -649,30 +916,47 @@ async function send(fix) {
     }
     if (ctx.notice) showNotice(ctx.notice);
     let extraRequest = request;
-    if (fix && !ctx.errorOutput && ctx.outputUnreadable) {
-      // ModelScope（VS Code Notebook）的输出在跨域 webview 里，读不到：用户把报错贴进输入框即可
-      if (!request) throw new Error('这个平台的输出显示在单独的安全框里，扩展读不到报错文字。请把报错信息复制到输入框里，再点“修复当前报错”。');
-      ctx.errorOutput = request; extraRequest = '';
+    let output = '', isError;
+    if (fix) {
+      const run = opts.run || ctx.run;
+      if (opts.run || (run && run.executed && run.output)) { output = run.output || ''; isError = !!run.error; }
+      if (!output && !opts.run && ctx.errorOutput) { output = ctx.errorOutput; isError = true; }
+      const unreadable = (run && run.unreadable) || ctx.outputUnreadable;
+      if (!output && unreadable) {
+        // VS Code 网页版（ModelScope、PAI-DSW WebIDE）的输出在跨域 webview 里读不到
+        if (request) { output = request; isError = true; extraRequest = ''; }
+        else if (run && run.error) {
+          const e = await readVsError(setPending);
+          setPending('正在思考…');
+          if (e && !e.ok && e.text) { output = e.text; isError = true; }
+          else if (e && e.ok) throw new Error('读取报错的单元格没有找到上一次的报错（内核里没有记录）。请把报错信息复制到输入框里，再点“修复当前报错”。');
+          else throw new Error('自动读取报错没成功（没有读到写回的结果）。请把报错信息复制到输入框里，再点“修复当前报错”。');
+        } else if (opts.run) { output = '（这一步运行完成，没有报错；这个平台的输出显示在单独的安全框里，读不到具体输出）'; isError = false; }
+        else throw new Error('这个平台的输出显示在单独的安全框里，扩展读不到报错文字。请把报错信息复制到输入框里，再点“修复当前报错”。');
+      }
+      if (!output) throw new Error('没有找到运行输出。请先运行单元格，并点一下选中它。');
     }
-    if (fix && !ctx.errorOutput) throw new Error('没有找到报错输出。请先运行出错的单元格，并点一下选中它。');
     let userMessage = buildUserMessage({
       request: fix ? (extraRequest ? '（补充说明）' + extraRequest : '') : request,
-      cellCode: useCtx ? ctx.cellCode : '', errorOutput: useCtx ? ctx.errorOutput : '', fix
+      cellCode: useCtx ? ctx.cellCode : '', errorOutput: fix ? output : (useCtx ? ctx.errorOutput : ''), fix, isError, mode,
+      attachments: atts
     });
-    if (fix && mode === 'chat') userMessage = userMessage.replace('请修复下面这个单元格的报错，输出修好后的完整单元格。', '请解释下面这个单元格为什么报错，并说明怎么修。');
-    const r = await generate(settings, { platform: ctx.platform || (target && target.platform), hardware: pageHw, userMessage, history, mode });
+    if (!userMessage.trim()) userMessage = '请看附件。';
+    const images = atts.filter((a) => a.kind === 'image');
+    const r = await generate(settings, { platform: ctx.platform || (target && target.platform), hardware: pageHw, userMessage, history, mode, images });
     const code = mode === 'chat' ? '' : mode === 'terminal' ? extractShell(r.text) : extractCode(r.text);
     const llm = mode === 'chat' ? r.text : '```' + (mode === 'terminal' ? 'bash' : 'python') + '\n' + code + '```';
     updateRecord(uRec, { llm: userMessage.slice(0, LLM_MAX) });
     const lvl = THINKING_LEVELS.find((l) => l.id === settings.thinking);
     const meta = `${r.providerLabel} · ${r.model}` + (settings.thinking !== 'default' ? ` · 思考：${lvl.label}` : '') +
-      (useCtx && (ctx.cellCode || ctx.errorOutput) ? ' · 已附带上下文' : '') + (mode !== 'notebook' ? ` · ${MODE_LABELS[mode]}模式` : '');
-    const bRec = record({ role: 'bot', mode, text: r.text, code, meta, llm: llm.slice(0, LLM_MAX) });
+      (useCtx && (ctx.cellCode || ctx.errorOutput || output) ? ' · 已附带上下文' : '') + (images.length ? ` · ${images.length} 张图片` : '') +
+      (fix ? (isError === false ? ' · 已读取运行输出' : ' · 已读取报错') : '') + (mode !== 'notebook' ? ` · ${MODE_LABELS[mode]}模式` : '');
+    const bRec = record({ role: 'bot', mode, text: r.text, code, meta, llm: llm.slice(0, LLM_MAX) }, convId);
     renderBot(pending, { text: r.text, code, meta, mode, rec: bRec });
     if (r.notice) showNotice(r.notice);
   } catch (e) {
     const error = String(e.message || e);
-    const bRec = record({ role: 'bot', mode, error });
+    const bRec = record({ role: 'bot', mode, error }, convId);
     renderBot(pending, { error, mode, rec: bRec });
   } finally {
     busy = false; $('send').disabled = false;
@@ -701,6 +985,16 @@ function probeHardware() {
     code: PROBE_CODE, meta: '内置 · 检测硬件',
     onRan: (setResult) => readProbeResult(setResult)
   });
+  // VS Code 网页版（PAI-DSW WebIDE 等）：先试同源的 Jupyter 服务接口开临时内核，成功就不用插单元格
+  if (target && target.kind === 'vscode-notebook' && hwKey) {
+    const t = target, key = hwKey;
+    restProbe(t, key).then((r) => {
+      if (r.stale) return;
+      if (r.hw) { probeFail = ''; showHw(pageHw); renderBot(m, { info: '已检测硬件（用临时内核在后台运行，没有新建单元格）：' + hardwareLabel(r.hw) + '。之后生成的代码会按这个配置来写。', meta: '内置 · 检测硬件' }); }
+      else showCell(r.reason ? '后台检测没成功（' + r.reason + '）。' : '');
+    });
+    return;
+  }
   // JupyterLab：直接在内核里静默检测（内核在忙也不用排队），不新建单元格
   if (target && target.kind === 'jupyterlab' && hwKey) {
     const t = target, key = hwKey;
@@ -745,8 +1039,16 @@ async function autoProbe(t) {
         const hw0 = r0 && r0.line ? parseProbeOutput(r0.line) : null;
         if (hw0) { await storeProbe(hw0); return; }
       } catch { /* ignore */ }
+      // 先试同源 Jupyter 服务接口开临时内核（PAI-DSW 的 WebIDE 和 JupyterLab 是同一个 Jupyter 服务）：不插单元格，内核在忙也不用等
+      const rp = await restProbe(t, key);
+      if (rp.stale) return;
+      if (rp.hw) { probeFail = ''; return; }
+      const pre = rp.reason ? rp.reason + '；' : '';
       const tried = (await chrome.storage.local.get(HW_TRIED_KEY))[HW_TRIED_KEY] || {};
-      if (tried[key] && Date.now() - tried[key] < 12 * 3600 * 1000) return;
+      if (tried[key] && Date.now() - tried[key] < 12 * 3600 * 1000) {
+        probeFail = pre + '这个网页 12 小时内已经自动插过一次检测单元格，但没读到结果';
+        return;
+      }
       // 有单元格正在运行（比如训练）：检测单元格会排在它后面，先等它跑完再插（最多等 6 小时）
       for (let i = 0; i < 6 * 3600 / VS_BUSY_POLL_S; i++) {
         let b = null;
@@ -764,9 +1066,10 @@ async function autoProbe(t) {
       try {
         await call('insertCellBelow', { code: AUTO_PROBE_CODE });
         await call('runCell', {});
-      } catch (e) { showNotice('自动检测硬件没成功：' + e.message + '。可以点「+ → 检测硬件」再试。'); return; }
+      } catch (e) { probeFail = pre + '插入检测单元格失败：' + String(e.message || e).slice(0, 80); showNotice('自动检测硬件没成功：' + e.message + '。可以点「+ → 检测硬件」再试。'); return; }
       const hw = await readProbeResult((msg) => showNotice(msg), true);
-      if (hw) showNotice('已自动检测硬件：' + hardwareLabel(hw));
+      if (hw) { probeFail = ''; showNotice('已自动检测硬件：' + hardwareLabel(hw)); }
+      else if (hwKey === key) probeFail = pre + '检测单元格运行了，但没读到写回的结果（内核可能没在运行）';
     }
   } finally {
     autoProbing = false;
@@ -802,6 +1105,24 @@ async function silentProbe(t, key) {
     }
   } finally { probeRunning = false; }
   return { reason };
+}
+
+// VS Code 网页版：通过同源的 Jupyter 服务接口（/api/kernels + WebSocket）开临时内核静默检测，检测完关掉。返回 {hw} / {reason} / {stale}
+async function restProbe(t, key) {
+  probeRunning = true; showHw(pageHw);
+  try {
+    let r = null;
+    try {
+      r = await withTimeout(chrome.tabs.sendMessage(t.tabId, { type: 'nbac', action: 'restProbe', args: { code: PROBE_CODE, timeoutMs: 90000 }, timeoutMs: 100000 }, { frameId: t.frameId }), 105000);
+    } catch (e) { return { reason: '临时内核检测没有响应' }; }
+    if (hwKey !== key) return { stale: true };
+    const res = r && r.ok !== false ? (r.result !== undefined ? r.result : r) : null;
+    const hw = res && res.output ? parseProbeOutput(res.output) : null;
+    if (hw) { probeRunning = false; await storeProbe(hw); return { hw }; }
+    if (!res) return { reason: '临时内核检测出错：' + String(r && r.error || '无返回').slice(0, 60) };
+    if (res.unavailable === 'no-jupyter-api') return { reason: '' }; // 这个网站没有 Jupyter 服务接口（ModelScope 免费实例等），只能插单元格
+    return { reason: '临时内核没开起来（' + String(res.unavailable || '没有输出').slice(0, 40) + '）' };
+  } finally { probeRunning = false; }
 }
 
 // waitWriteBack：自动检测会把结果写回单元格文字，输出框读不到也要一直等到结果写回
@@ -895,15 +1216,33 @@ $('modelInput').addEventListener('input', () => {
 $('modelInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); chooseModel($('modelInput').value); } });
 $('modelInput').addEventListener('change', () => chooseModel($('modelInput').value));
 // 新对话 = 清空全部聊天记录（先确认）；没有记录时直接回到欢迎页
-const askClear = () => {
-  closeMenus();
-  if (!chatLog.length) { clearChat(); return; }
-  $('clearConfirm').hidden = false;
-};
-$('newChat').addEventListener('click', (e) => { e.stopPropagation(); askClear(); });
-$('clearHistory').addEventListener('click', () => askClear());
-$('clearYes').addEventListener('click', () => clearChat());
-$('clearNo').addEventListener('click', () => { $('clearConfirm').hidden = true; });
+$('newChat').addEventListener('click', (e) => { e.stopPropagation(); closeMenus(); newConversation(); });
+$('historyBtn').addEventListener('click', (e) => { e.stopPropagation(); if ($('convDrawer').hidden) openDrawer(); else closeDrawer(); });
+$('drawerMask').addEventListener('click', () => closeDrawer());
+$('convClose').addEventListener('click', () => closeDrawer());
+$('convNew').addEventListener('click', () => newConversation());
+$('convDeleteAll').addEventListener('click', () => { $('convAllConfirm').hidden = false; });
+$('convAllNo').addEventListener('click', () => { $('convAllConfirm').hidden = true; });
+$('convAllYes').addEventListener('click', () => { $('convAllConfirm').hidden = true; deleteAllConversations(); });
+$('convDrawer').addEventListener('click', (e) => e.stopPropagation());
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('convDrawer').hidden) closeDrawer(); });
+// 聊天模式：+ → 添加图片或文件；也可以直接粘贴图片、把文件拖进输入框
+$('attachFile').addEventListener('click', () => { closeMenus(); $('fileInput').click(); });
+$('fileInput').addEventListener('change', async (e) => { await addFiles(e.target.files); e.target.value = ''; });
+$('prompt').addEventListener('paste', (e) => {
+  const files = Array.from((e.clipboardData && e.clipboardData.files) || []);
+  if (!files.length || currentMode() !== 'chat') return;
+  e.preventDefault(); addFiles(files);
+});
+$('composer').addEventListener('dragover', (e) => { if (currentMode() === 'chat') { e.preventDefault(); $('composer').classList.add('drag'); } });
+$('composer').addEventListener('dragleave', () => $('composer').classList.remove('drag'));
+$('composer').addEventListener('drop', (e) => {
+  $('composer').classList.remove('drag');
+  if (currentMode() !== 'chat' || !e.dataTransfer || !e.dataTransfer.files.length) return;
+  e.preventDefault(); addFiles(e.dataTransfer.files);
+});
+$('autoFix').addEventListener('change', async (e) => { await saveSettings({ autoFix: e.target.checked }); await refreshSettings(); });
+if (forcedTabId) window.addFilesForTest = addFiles; // 测试用
 $('openOptions').addEventListener('click', () => chrome.runtime.openOptionsPage());
 $('closePanel').addEventListener('click', () => window.close());
 

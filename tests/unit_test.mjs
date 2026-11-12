@@ -4,7 +4,9 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 import { PROBE_CODE, AUTO_PROBE_CODE, parseProbeOutput, mergeHardware, hardwareLabel, hardwareRule } from '../src/lib/hardware.js';
 import { MAIN_SCRIPTS, ISOLATED_SCRIPTS, classifyInjectError, originPattern, isInternalUrl } from '../src/lib/inject.js';
-import { extractCode, extractShell, bashCell, systemPrompt, buildUserMessage, thinkingParams, supportedThinking, filterChatModels, PRESETS, DEFAULTS, MODES, MODE_LABELS, normalizeMode } from '../src/lib/llm.js';
+import { extractCode, extractShell, bashCell, systemPrompt, buildUserMessage, thinkingParams, supportedThinking, filterChatModels, PRESETS, DEFAULTS, MODES, MODE_LABELS, normalizeMode,
+  attachmentKind, ipynbToText, prepareTextAttachment, MAX_FILE_CHARS, openaiUserContent, geminiUserParts, visionHint } from '../src/lib/llm.js';
+import { ERR_READ_CODE, parseErrLine } from '../src/lib/errread.js';
 
 assert.equal(extractCode('说明\n```python\nprint(1)\n```\n其他'), 'print(1)\n');
 assert.equal(extractCode('```\n%pip install x\n```'), '%pip install x\n');
@@ -116,7 +118,7 @@ assert.deepEqual(filterChatModels(['qwen3.8-max', 'paraformer-v2', 'qwen-tts', '
 // manifest：安睿云域名在所有内容脚本里都匹配、全部 frame 注入
 {
   const man = JSON.parse(fs.readFileSync(new URL('../manifest.json', import.meta.url), 'utf8'));
-  assert.equal(man.version, '0.1.13');
+  assert.equal(man.version, '0.1.14');
   for (const f of ['src/content/page.js', 'src/content/bridge.js', 'src/content/nb-helpers.js']) {
     const src = fs.readFileSync(new URL('../' + f, import.meta.url), 'utf8');
     const m = src.match(/const BUILD = '([^']+)'/);
@@ -238,7 +240,7 @@ assert.deepEqual(filterChatModels(['qwen3.8-max', 'paraformer-v2', 'qwen-tts', '
 {
   assert.deepEqual(MODES, ['notebook', 'terminal', 'chat']);
   assert.deepEqual(MODE_LABELS, { notebook: 'Notebook', terminal: '终端', chat: '聊天' });
-  assert.equal(DEFAULTS.mode, 'notebook');
+  assert.equal(DEFAULTS.mode, 'notebook'); assert.equal(DEFAULTS.autoFix, false);
   assert.equal(normalizeMode('chat'), 'chat'); assert.equal(normalizeMode('x'), 'notebook'); assert.equal(normalizeMode(undefined), 'notebook');
   // Notebook 模式和以前完全一样（默认参数）
   assert.equal(systemPrompt('Kaggle', null, 'notebook'), systemPrompt('Kaggle'));
@@ -271,9 +273,66 @@ assert.deepEqual(filterChatModels(['qwen3.8-max', 'paraformer-v2', 'qwen-tts', '
 {
   const html = fs.readFileSync(new URL('../src/sidepanel/index.html', import.meta.url), 'utf8');
   for (const [m, l] of [['notebook', 'Notebook'], ['terminal', '终端'], ['chat', '聊天']]) assert.match(html, new RegExp(`data-mode="${m}" role="tab"[^>]*>${l}</button>`));
-  assert.match(html, /id="clearHistory"/); assert.match(html, /清空全部聊天记录？/);
+  // 0.1.14：对话记录抽屉（多个对话）、新对话、删除全部；不再有逐条删除
+  for (const id of ['historyBtn', 'newChat', 'convDrawer', 'convList', 'convNew', 'convDeleteAll', 'convAllConfirm', 'attachFile', 'fileInput', 'attachChips', 'autoFix']) assert.match(html, new RegExp(`id="${id}"`), id);
+  assert.match(html, /删除全部对话？/); assert.doesNotMatch(html, /clearHistory|清空全部聊天记录/);
+  assert.match(html, /class="menu-item chat-only[^"]*" id="attachFile"/, '聊天模式的 + 是添加图片或文件');
+  assert.match(html, /class="menu-item nb-only" id="fixError"/);
   const js = fs.readFileSync(new URL('../src/sidepanel/panel.js', import.meta.url), 'utf8');
-  assert.match(js, /const CHAT_KEY = 'nbacChatHistory'/); assert.match(js, /const CHAT_MAX = 200/);
-  assert.doesNotMatch(js.slice(js.indexOf('function record('), js.indexOf('function updateRecord(')), /apiKey/, '聊天记录里不存 Key');
+  assert.match(js, /const CONV_INDEX = 'nbacConvIndex'/); assert.match(js, /const OLD_CHAT_KEY = 'nbacChatHistory'/);
+  assert.match(js, /const CONV_MAX = 100/); assert.match(js, /const MSG_MAX = 200/);
+  assert.doesNotMatch(js, /msg-del/, '不再有逐条删除按钮');
+  assert.doesNotMatch(js.slice(js.indexOf('function record('), js.indexOf('function updateRecord(')), /apiKey|dataUrl/, '聊天记录里不存 Key 和图片数据');
+  assert.match(js, /attMeta = atts\.map\(\(a\) => \(\{ kind: a\.kind, name: a\.name, size: a\.size, truncated: !!a\.truncated \}\)\)/, '附件只存名字等信息');
+}
+// ---------- 0.1.14：读取运行结果给下一步、附件、多模态、读取报错单元格、AMD CPU 不算 AMD 显卡 ----------
+{
+  // 修复 / 下一步
+  const fixNb = buildUserMessage({ cellCode: 'raise X', errorOutput: 'ValueError: boom', fix: true, isError: true, mode: 'notebook' });
+  assert.match(fixNb, /请修复下面这个单元格的报错，输出修好后的完整单元格/); assert.match(fixNb, /最近的报错输出/);
+  const nextNb = buildUserMessage({ cellCode: 'print(1)', errorOutput: '1', fix: true, isError: false, mode: 'notebook' });
+  assert.match(nextNb, /请根据输出判断这一步有没有成功/); assert.match(nextNb, /下一步需要运行的完整单元格/); assert.match(nextNb, /运行输出：/); assert.doesNotMatch(nextNb, /请修复/);
+  const fixT = buildUserMessage({ cellCode: '%%bash\nexit 3', errorOutput: 'CalledProcessError', fix: true, isError: true, mode: 'terminal' });
+  assert.match(fixT, /```bash 代码块/); assert.match(fixT, /```bash\n%%bash/, '%%bash 单元格按 bash 标注');
+  assert.match(buildUserMessage({ errorOutput: 'x', fix: true, isError: false, mode: 'terminal' }), /下一步需要运行的命令/);
+  assert.match(buildUserMessage({ errorOutput: 'x', fix: true, mode: 'chat' }), /请解释下面这个单元格为什么报错/);
+  // 附件
+  assert.equal(attachmentKind('a.png', 'image/png'), 'image'); assert.equal(attachmentKind('a.JPG', ''), 'image'); assert.equal(attachmentKind('x.webp', 'image/webp'), 'image');
+  for (const n of ['a.txt', 'b.md', 'c.py', 'd.ipynb', 'e.csv', 'f.json', 'g.yaml', 'h.yml', 'i.log', 'requirements.txt', 'Dockerfile']) assert.equal(attachmentKind(n, ''), 'file', n);
+  assert.equal(attachmentKind('x.pdf', 'application/pdf'), null); assert.equal(attachmentKind('x.zip', 'application/zip'), null);
+  const nb = JSON.stringify({ cells: [{ cell_type: 'code', source: ['import os\n', 'print(1)'], outputs: [{ text: 'SECRET_OUTPUT' }] }, { cell_type: 'markdown', source: '# 标题' }] });
+  const t = ipynbToText(nb);
+  assert.match(t, /单元格 1（code）/); assert.match(t, /import os\nprint\(1\)/); assert.match(t, /# 标题/); assert.doesNotMatch(t, /SECRET_OUTPUT/, '.ipynb 只取源码不取输出');
+  const big = prepareTextAttachment('big.log', 'x'.repeat(MAX_FILE_CHARS + 500));
+  assert.ok(big.truncated); assert.match(big.text, /文件太长已截断/); assert.ok(big.text.length < MAX_FILE_CHARS + 100);
+  const small = prepareTextAttachment('a.py', 'print(1)'); assert.ok(!small.truncated); assert.equal(small.lang, 'python');
+  const um = buildUserMessage({ request: '看看', attachments: [small, big, { kind: 'image', name: 'p.png', dataUrl: 'data:image/png;base64,AAAA' }] });
+  assert.match(um, /附件「a\.py」：\n```python\nprint\(1\)/); assert.match(um, /附件「big\.log」（太长/); assert.doesNotMatch(um, /base64/, '图片不进文字消息');
+  assert.equal(openaiUserContent('hi'), 'hi');
+  assert.deepEqual(openaiUserContent('hi', [{ dataUrl: 'data:image/png;base64,AAAA' }]), [{ type: 'text', text: 'hi' }, { type: 'image_url', image_url: { url: 'data:image/png;base64,AAAA' } }]);
+  assert.deepEqual(geminiUserParts('hi', [{ dataUrl: 'data:image/jpeg;base64,BBBB' }]), [{ text: 'hi' }, { inlineData: { mimeType: 'image/jpeg', data: 'BBBB' } }]);
+  assert.match(visionHint(400, 'image_url is only supported by multimodal models', 'qwen-x'), /不支持图片输入.*换一个支持图片的多模态/);
+  assert.equal(visionHint(401, 'image', 'm'), ''); assert.equal(visionHint(400, 'Unrecognized request argument', 'm'), '');
+  // 读取报错单元格：只读、写回 NBAC_ERR、不改用户代码
+  assert.match(ERR_READ_CODE, /sys, "last_value"/); assert.match(ERR_READ_CODE, /set_next_input\("# 上一次运行的报错[^"]*\\n# NBAC_ERR " \+ json\.dumps\(info, ensure_ascii=False\), replace=True\)/);
+  assert.match(ERR_READ_CODE, /\n_nbac_last_error\(\)\ndel _nbac_last_error\n$/); assert.doesNotMatch(ERR_READ_CODE, /pip install|%pip/);
+  assert.deepEqual(parseErrLine('{"ok": true}'), { ok: true, text: '' });
+  assert.equal(parseErrLine('{"ok": false, "ename": "ValueError", "evalue": "x", "tb": "Traceback...\\nValueError: x"}').text, 'Traceback...\nValueError: x');
+  assert.equal(parseErrLine('{"ok": false, "ename": "E", "evalue": "v"}').text, 'E: v');
+  assert.equal(parseErrLine('garbage'), null);
+  // 报错识别、AMD CPU 不算 AMD 显卡（PAI-DSW 实例规格里常写 AMD EPYC）
+  const sb = { URL }; vm.runInNewContext(fs.readFileSync(new URL('../src/content/nb-helpers.js', import.meta.url), 'utf8'), sb);
+  const H = sb.__nbacHelpers;
+  assert.ok(H.looksLikeError('Traceback (most recent call last):\n  ...\nValueError: x'));
+  assert.ok(H.looksLikeError("CalledProcessError: Command 'b'x'' returned non-zero exit status 3."));
+  assert.ok(H.looksLikeError('bash: foo: command not found'));
+  assert.ok(H.looksLikeError('ERROR: Could not find a version that satisfies the requirement x'));
+  assert.ok(!H.looksLikeError('NBAC_OK 42 True')); assert.ok(!H.looksLikeError('')); assert.ok(!H.looksLikeError('loss=0.3 errors_total 0'));
+  const P = (text) => JSON.parse(JSON.stringify(H.parseHardwareHints({ text, url: 'https://dsw-gateway-cn-hangzhou.data.aliyun.com/dsw-1/ide/' })));
+  assert.equal(P('实例规格 ecs.c7a.2xlarge（CPU：AMD EPYC 7T83 64-Core Processor，8 vCPU 32 GiB）'), null, 'AMD EPYC 是 CPU，不是 AMD 显卡');
+  assert.equal(P('AMD Ryzen 9 7950X'), null);
+  assert.equal(P('CPU AMD EPYC 7763 · GPU NVIDIA A10 24GB').vendor, 'nvidia');
+  assert.equal(P('AMD EPYC 9654 + AMD Instinct MI300X').vendor, 'amd', '同时有 AMD 显卡时仍然是 AMD');
+  assert.equal(P('AMD Radeon Cloud').vendor, 'amd');
 }
 console.log('unit tests passed');

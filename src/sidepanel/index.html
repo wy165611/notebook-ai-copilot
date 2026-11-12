@@ -10,8 +10,11 @@
   <header class="top">
     <div class="title">Notebook AI 助手</div>
     <div class="top-actions">
-      <button class="icon" id="newChat" title="新对话（清空聊天记录）">
-        <svg viewBox="0 0 24 24"><path d="M19 13H5v-2h14v2z"/></svg>
+      <button class="icon" id="historyBtn" title="对话记录">
+        <svg viewBox="0 0 24 24"><path d="M13 3a9 9 0 0 0-9 9H1l3.89 3.89.07.14L9 12H6a7 7 0 1 1 2.05 4.95l-1.42 1.42A9 9 0 1 0 13 3zm-1 5v5l4.28 2.54.72-1.21-3.5-2.08V8H12z"/></svg>
+      </button>
+      <button class="icon" id="newChat" title="新对话（之前的对话会保留在对话记录里）">
+        <svg viewBox="0 0 24 24"><path d="M20 2H4a2 2 0 0 0-2 2v18l4-4h14a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2zm-3 9h-4v4h-2v-4H7V9h4V5h2v4h4v2z"/></svg>
       </button>
       <button class="icon" id="openOptions" title="设置（API Key / 服务商）">
         <svg viewBox="0 0 24 24"><path d="M12 8a2 2 0 1 0 0-4 2 2 0 0 0 0 4zm0 2a2 2 0 1 0 0 4 2 2 0 0 0 0-4zm0 6a2 2 0 1 0 0 4 2 2 0 0 0 0-4z"/></svg>
@@ -22,11 +25,25 @@
     </div>
   </header>
 
-  <div id="clearConfirm" class="clear-confirm" hidden>
-    <span>清空全部聊天记录？</span>
-    <button class="act danger" id="clearYes">清空</button>
-    <button class="act" id="clearNo">取消</button>
-  </div>
+  <!-- 对话记录（像 Gemini 网页版：多个对话，可以打开、新建、重命名、删除） -->
+  <div id="drawerMask" class="drawer-mask" hidden></div>
+  <aside id="convDrawer" class="conv-drawer" hidden>
+    <div class="drawer-head">
+      <span class="drawer-title">对话记录</span>
+      <button class="icon" id="convClose" title="关闭"><svg viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg></button>
+    </div>
+    <button class="act primary conv-new" id="convNew"><svg viewBox="0 0 24 24"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>新对话</button>
+    <div id="convList" class="conv-list"></div>
+    <div id="convEmpty" class="conv-empty">还没有对话记录</div>
+    <div class="drawer-foot">
+      <button class="act danger" id="convDeleteAll">删除全部</button>
+      <div id="convAllConfirm" class="conv-confirm" hidden>
+        <span>删除全部对话？</span>
+        <button class="act danger" id="convAllYes">删除</button>
+        <button class="act" id="convAllNo">取消</button>
+      </div>
+    </div>
+  </aside>
   <div id="status" class="status">正在检测当前页面的 Notebook…</div>
   <div id="hw" class="hw" hidden></div>
   <div id="siteAccess" class="site-access" hidden>
@@ -70,6 +87,8 @@
         <svg viewBox="0 0 24 24"><path d="M16.5 6v11.5a4 4 0 0 1-8 0V5a2.5 2.5 0 0 1 5 0v10.5a1 1 0 0 1-2 0V6H10v9.5a2.5 2.5 0 0 0 5 0V5a4 4 0 0 0-8 0v12.5a5.5 5.5 0 0 0 11 0V6h-1.5z"/></svg>
         已附带当前单元格和报错
       </div>
+      <div id="attachChips" class="attach-chips" hidden></div>
+      <input type="file" id="fileInput" multiple hidden accept="image/png,image/jpeg,image/webp,image/gif,.txt,.md,.py,.ipynb,.csv,.tsv,.json,.jsonl,.yaml,.yml,.toml,.ini,.cfg,.log,.sh,.js,.ts,.html,.css,.xml,.sql,.r,.java,.c,.cpp,.h,.go,.rs,text/*" />
       <textarea id="prompt" rows="1" placeholder="需要我帮您构建什么？"></textarea>
       <div class="composer-bar">
         <div class="left">
@@ -93,12 +112,14 @@
 
     <!-- 弹出菜单 -->
     <div id="plusMenu" class="menu" hidden>
+      <button class="menu-item chat-only strong-item" id="attachFile"><svg viewBox="0 0 24 24"><path d="M16.5 6v11.5a4 4 0 0 1-8 0V5a2.5 2.5 0 0 1 5 0v10.5a1 1 0 0 1-2 0V6H10v9.5a2.5 2.5 0 0 0 5 0V5a4 4 0 0 0-8 0v12.5a5.5 5.5 0 0 0 11 0V6h-1.5z"/></svg>添加图片或文件</button>
+      <div class="menu-sep chat-only"></div>
       <label class="menu-item"><input type="checkbox" id="includeContext" /> 附带当前单元格代码和最近的报错</label>
-      <button class="menu-item" id="fixError">修复当前报错</button>
-      <button class="menu-item" id="probeHw">检测硬件（GPU / CPU）</button>
+      <button class="menu-item nb-only" id="fixError">修复当前报错（读取运行结果，给下一步）</button>
+      <label class="menu-item nb-only"><input type="checkbox" id="autoFix" /> 运行出错自动修复（只生成，不自动运行）</label>
+      <button class="menu-item nb-only" id="probeHw">检测硬件（GPU / CPU）</button>
       <button class="menu-item" id="refresh">重新检测 Notebook</button>
       <button class="menu-item" id="diagnose">复制诊断信息</button>
-      <button class="menu-item" id="clearHistory">清空聊天记录</button>
     </div>
     <div id="thinkMenu" class="menu" hidden>
       <div class="menu-title">思考强度</div>

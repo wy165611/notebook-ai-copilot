@@ -10,7 +10,7 @@
 (() => {
   // 扩展更新后，网页里可能还留着旧版脚本（页面世界里的脚本不会随扩展重新加载而消失）。
   // 所以按版本判断是否已加载，消息事件名也带版本号，旧脚本收不到新版的请求。BUILD 必须和 manifest 的 version 一致（单元测试会检查）
-  const BUILD = '0.1.13';
+  const BUILD = '0.1.14';
   if (window.__nbacPageBuild === BUILD) return;
   window.__nbacPageLoaded = true;
   window.__nbacPageBuild = BUILD;
@@ -353,6 +353,17 @@
       const inCell = cell ? Array.from(cell.querySelectorAll(sel)) : [nodes[nodes.length - 1]];
       return inCell.map((n) => n.innerText).join('\n').trim();
     },
+    // 单元格的运行状态和输出（DOM：执行序号 [*] / [N]、输出区文字、stderr 里的报错）
+    cellRunInfo(node) {
+      if (!node || !node.isConnected) return { gone: true };
+      const p = node.querySelector('.jp-InputPrompt, .jp-InputArea-prompt');
+      const prompt = p ? p.textContent.trim() : '';
+      const outs = Array.from(node.querySelectorAll('.jp-OutputArea-output'));
+      const output = outs.map((o) => o.innerText || o.textContent || '').join('\n').trim();
+      const ERR_SEL = '[data-mime-type="application/vnd.jupyter.stderr"]';
+      const errText = outs.filter((o) => o.matches(ERR_SEL) || o.querySelector(ERR_SEL)).map((o) => o.innerText || o.textContent || '').join('\n');
+      return { prompt, sig: prompt, running: /\*/.test(prompt), executed: /\d/.test(prompt), output, error: H.looksLikeError(errText), unreadable: false };
+    },
     toolbarButton(command) {
       const nb = this.notebookNode();
       const panel = nb && nb.closest('.jp-NotebookPanel');
@@ -648,6 +659,19 @@
       if (!ed) return false;
       return !!ed.querySelector('.codicon-notebook-state-executing, .cell-status-item .codicon-modifier-spin, .code-cell-row .codicon-notebook-stop, .code-cell-row .codicon-debug-stop, .code-cell-row.executing');
     },
+    // 运行状态：执行序号 [*]/[N]、状态栏图标（转圈 / ✓ notebook-state-success / ✗ notebook-state-error）；输出多半在跨域 webview 里读不到
+    rowRunInfo(row) {
+      if (!row || !row.isConnected) return { gone: true };
+      const lab = row.querySelector('.cell-execution-order, .execution-count-label');
+      const order = lab ? lab.textContent.trim() : '';
+      const running = /\*/.test(order) || !!row.querySelector('.codicon-notebook-state-executing, .codicon-modifier-spin, .codicon-notebook-stop, .codicon-debug-stop') || row.classList.contains('executing');
+      const ok = !!row.querySelector('.codicon-notebook-state-success');
+      const bad = !!row.querySelector('.codicon-notebook-state-error');
+      const output = this.outputText(row);
+      const unreadable = !output && !!(row.querySelector('.output') || this.editor() && this.editor().querySelector('iframe.webview'));
+      return { prompt: order, sig: order + (ok ? '|ok' : '') + (bad ? '|err' : ''), running, executed: ok || bad || /\d/.test(order),
+        output, error: bad || H.looksLikeError(output), stateKnown: ok || bad, unreadable };
+    },
     kernelHint() {
       const ed = this.editor();
       if (!ed) return '';
@@ -934,6 +958,114 @@
     return { line: found, unreadable: !found && !!vscodeNotebook.detect() && vscodeNotebook.outputUnreadable() };
   }
 
+  // VS Code 网页版：「读取报错」单元格把上一次的报错写回单元格（# NBAC_ERR {...}），从单元格文字里读
+  function readErrorWriteBack() {
+    if (!vscodeNotebook.detect()) return { line: '', count: 0 };
+    let found = '', count = 0;
+    for (const row of vscodeNotebook.rows()) {
+      const m = vscodeNotebook.monacoOf(row);
+      const t = m ? monacoViewText(m).replace(/\u00a0/g, ' ') : '';
+      const hit = t.match(/^\s*#\s*NBAC_ERR\s*\{[^\n]*\}/m);
+      if (hit) { found = hit[0].replace(/^\s*#\s*NBAC_ERR\s*/, ''); count++; }
+    }
+    return { line: found, count };
+  }
+
+  // ---------- 不经过页面里的 JupyterLab，直接用 Jupyter 服务的 REST + WebSocket 接口开临时内核（PAI-DSW 的 WebIDE 等） ----------
+  function xsrfHeaders(json) {
+    const h = json ? { 'Content-Type': 'application/json' } : {};
+    const x = (document.cookie.match(/(?:^|;\s*)_xsrf=([^;]*)/) || [])[1];
+    if (x) h['X-XSRFToken'] = decodeURIComponent(x);
+    return h;
+  }
+  async function findJupyterBase() {
+    const segs = location.pathname.split('/').filter(Boolean);
+    if (segs.length && /\./.test(segs[segs.length - 1])) segs.pop();
+    const cands = [];
+    for (let i = Math.min(segs.length, 3); i >= 0; i--) cands.push('/' + segs.slice(0, i).map((x) => x + '/').join(''));
+    for (const b of [...new Set(cands)]) {
+      try {
+        const r = await withTimeoutP(fetch(b + 'api/kernelspecs', { credentials: 'same-origin', headers: xsrfHeaders(false) }), 8000);
+        if (!r.ok) continue;
+        const j = await r.json().catch(() => null);
+        if (j && j.kernelspecs) return { base: b, kernel: j.default || Object.keys(j.kernelspecs)[0] };
+      } catch { /* ignore */ }
+    }
+    return null;
+  }
+  function withTimeoutP(p, ms) { return Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), ms))]); }
+  function rid() { return Math.random().toString(36).slice(2) + Date.now().toString(36); }
+  async function restExecute(base, kernelName, code, limit) {
+    const resp = await fetch(base + 'api/kernels', { method: 'POST', credentials: 'same-origin', headers: xsrfHeaders(true), body: JSON.stringify({ name: kernelName }) });
+    if (!resp.ok) return { error: 'start-' + resp.status };
+    const k = await resp.json();
+    try {
+      const session = rid();
+      const ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + base + 'api/kernels/' + encodeURIComponent(k.id) + '/channels?session_id=' + session);
+      const msg = (type, content) => ({ header: { msg_id: rid(), username: 'nbac', session, msg_type: type, version: '5.3', date: new Date().toISOString() },
+        parent_header: {}, metadata: {}, content, channel: 'shell', buffers: [] });
+      const text = await new Promise((resolve) => {
+        let out = '', done = false, execId = null;
+        const finish = () => { if (done) return; done = true; clearTimeout(timer); try { ws.close(); } catch { /* ignore */ } resolve(out); };
+        const timer = setTimeout(finish, limit);
+        const exec = () => {
+          if (execId) return;
+          const m = msg('execute_request', { code, silent: false, store_history: false, user_expressions: {}, allow_stdin: false, stop_on_error: true });
+          execId = m.header.msg_id; ws.send(JSON.stringify(m));
+        };
+        let infoId = null;
+        ws.onopen = () => { const m = msg('kernel_info_request', {}); infoId = m.header.msg_id; ws.send(JSON.stringify(m)); setTimeout(() => { if (!done) exec(); }, 20000); };
+        ws.onmessage = (ev) => {
+          if (typeof ev.data !== 'string') return;
+          let m; try { m = JSON.parse(ev.data); } catch { return; }
+          const t = (m.header && m.header.msg_type) || m.msg_type;
+          const parent = m.parent_header && m.parent_header.msg_id;
+          if (parent === infoId && t === 'kernel_info_reply') return exec();
+          if (!execId || parent !== execId) return;
+          if (t === 'stream' && m.content && m.content.text) out += m.content.text;
+          if (t === 'status' && m.content && m.content.execution_state === 'idle') finish();
+        };
+        ws.onerror = finish; ws.onclose = finish;
+      });
+      return { output: text };
+    } finally {
+      try { await fetch(base + 'api/kernels/' + encodeURIComponent(k.id), { method: 'DELETE', credentials: 'same-origin', headers: xsrfHeaders(false) }); } catch { /* ignore */ }
+    }
+  }
+
+  // 最近一次由助手运行的单元格（用来在运行结束后读结果）
+  let lastRun = null;
+  function runHandle(a, id) {
+    if (a === jupyterLab) { const node = jupyterLab.activeCellNode(); return { id, a, node, before: jupyterLab.cellRunInfo(node).sig, t0: Date.now() }; }
+    if (a === vscodeNotebook) { const row = vscodeNotebook.activeRow(); return { id, a, row, uri: vscodeNotebook.uriOf(row), before: vscodeNotebook.rowRunInfo(row).sig, t0: Date.now() }; }
+    return { id, a, unsupported: true };
+  }
+  function runInfoOf(h) {
+    if (h.a === jupyterLab) return jupyterLab.cellRunInfo(h.node);
+    let row = h.row;
+    if (h.uri && !(row && row.isConnected && vscodeNotebook.uriOf(row) === h.uri)) row = vscodeNotebook.rows().find((r) => vscodeNotebook.uriOf(r) === h.uri) || row;
+    return vscodeNotebook.rowRunInfo(row);
+  }
+  function runStatus({ runId } = {}) {
+    if (!lastRun) return { state: 'none' };
+    if (runId && runId !== lastRun.id) return { state: 'stale' };
+    if (lastRun.unsupported) return { state: 'unsupported', kind: lastRun.a.kind };
+    const i = runInfoOf(lastRun);
+    if (i.gone) return { state: 'gone' };
+    if (i.running) { lastRun.seenRunning = true; return { state: 'running' }; }
+    const changed = i.sig !== lastRun.before || lastRun.seenRunning;
+    if (!changed || !i.executed) return { state: 'pending' };
+    // VS Code：序号变了但状态图标还没出来时再等一下
+    if (lastRun.a === vscodeNotebook && !i.stateKnown && Date.now() - lastRun.t0 < 8000) return { state: 'running' };
+    return { state: 'done', error: !!i.error, output: (i.output || '').slice(-6000), unreadable: !!i.unreadable, kind: lastRun.a.kind };
+  }
+  // 当前选中单元格的运行结果（「修复当前报错」用）：报错和正常输出都读
+  function activeRunInfo(a) {
+    if (a === jupyterLab) return jupyterLab.cellRunInfo(jupyterLab.activeCellNode());
+    if (a === vscodeNotebook) return vscodeNotebook.rowRunInfo(vscodeNotebook.activeRow());
+    return null;
+  }
+
   function pickAdapter() {
     if (jupyterLab.detect()) return jupyterLab;
     if (classicNotebook.detect()) return classicNotebook;
@@ -1032,6 +1164,18 @@
       return r;
     },
     readHardwareProbe,
+    readErrorWriteBack,
+    runStatus,
+    // 页面里没有 JupyterLab 内核对象时（VS Code 网页版），试着通过同源的 Jupyter 服务接口开临时内核静默检测
+    async restProbe({ code, timeoutMs }) {
+      if (typeof code !== 'string' || !/NBAC_HW/.test(code)) throw new Error('只能运行内置的检测代码');
+      const j = await findJupyterBase();
+      if (!j) return { unavailable: 'no-jupyter-api' };
+      const r = await restExecute(j.base, j.kernel, code, Math.min(Number(timeoutMs) || 60000, 120000));
+      if (r.error) return { unavailable: r.error, base: j.base };
+      const m = (r.output || '').match(/NBAC_HW\s*\{[^\n]*\}/g);
+      return { output: m ? m[m.length - 1] : '', base: j.base };
+    },
     // 在当前 Notebook 已连接的内核里静默运行只读检测代码（不新建单元格、不进历史），返回输出文字
     async kernelProbe({ code, timeoutMs }) {
       if (typeof code !== 'string' || !/NBAC_HW/.test(code)) throw new Error('只能运行内置的检测代码');
@@ -1065,6 +1209,8 @@
       const a = pickAdapter();
       if (!a) throw new Error('当前页面没有检测到 Notebook');
       const r = { platform: platformName(), kind: a.kind, cellCode: await a.getActiveCellCode(), errorOutput: a.getLastErrorOutput() };
+      const run = activeRunInfo(a);
+      if (run && !run.gone) r.run = { output: (run.output || '').slice(-6000), error: !!run.error, executed: !!run.executed, running: !!run.running, unreadable: !!run.unreadable };
       if (a === vscodeNotebook) {
         r.outputUnreadable = !r.errorOutput && vscodeNotebook.outputUnreadable();
         r.notice = vscodeNotebook.kernelHint();
@@ -1078,7 +1224,13 @@
       if (typeof code !== 'string') throw new Error('code 必须是字符串');
       return a.insertCellBelow(code);
     },
-    async runCell() { const a = pickAdapter(); if (!a) throw new Error('未检测到 Notebook'); return a.runCell(); }
+    async runCell() {
+      const a = pickAdapter(); if (!a) throw new Error('未检测到 Notebook');
+      const h = runHandle(a, rid());
+      const r = await a.runCell();
+      lastRun = h;
+      return { ...r, runId: h.id };
+    }
   };
 
   document.addEventListener(REQ_EVENT, async (ev) => {

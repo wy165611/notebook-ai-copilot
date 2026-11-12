@@ -1,6 +1,6 @@
 """端到端测试：真实 JupyterLab + Chromium 加载扩展 + 本地模拟模型服务。
 用法见 tests/README.md。退出码 0 = 全部通过。"""
-import json, os, pathlib, subprocess, sys, tempfile, time, urllib.request
+import json, base64, os, pathlib, subprocess, sys, tempfile, time, urllib.request
 from playwright.sync_api import sync_playwright
 
 HERE = pathlib.Path(__file__).resolve().parent
@@ -157,6 +157,110 @@ def prepare_lab_page(ctx, port):
     page.query_selector_all('.jp-Notebook .jp-Cell .cm-content')[1].click()  # 选中出错的单元格
     return page
 
+# ---------- 0.1.14：运行后自动读取运行结果、给下一步（每个平台都跑一遍） ----------
+ATT_DIR = pathlib.Path('/tmp/nbac-att')
+PNG_1PX = base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==')
+
+def make_attachments():
+    ATT_DIR.mkdir(parents=True, exist_ok=True)
+    (ATT_DIR / 'notes.txt').write_text('NBAC_ATTACH_TXT 你好\n第二行\n', encoding='utf-8')
+    (ATT_DIR / 'shot.png').write_bytes(PNG_1PX)
+    (ATT_DIR / 'demo.ipynb').write_text(json.dumps({'cells': [
+        {'cell_type': 'code', 'source': ['import os\n', 'print("NBAC_IPYNB_SRC")'], 'outputs': [{'output_type': 'stream', 'text': 'NBAC_IPYNB_OUTPUT_SHOULD_NOT_APPEAR'}]},
+        {'cell_type': 'markdown', 'source': '# 标题 NBAC_IPYNB_MD'}], 'metadata': {}, 'nbformat': 4, 'nbformat_minor': 5}), encoding='utf-8')
+    (ATT_DIR / 'big.log').write_text('NBAC_BIG_HEAD\n' + ('x' * 120 + '\n') * 1000 + 'NBAC_BIG_TAIL\n', encoding='utf-8')
+    return ATT_DIR
+
+def set_mode(panel, mode):
+    panel.click(f'.mode-btn[data-mode="{mode}"]')
+    panel.wait_for_function("(m) => document.body.dataset.mode === m", arg=mode, timeout=3000)
+
+def run_and_wait_continue(panel, msg, timeout=90):
+    """点「插入并运行」/「在 Notebook 里运行」并确认，等侧边栏发现运行结束，出现「根据运行结果继续」按钮。返回 (结果文字, 按钮 class)。"""
+    msg.evaluate("(m) => { m.querySelector('.result').textContent = ''; }")
+    msg.query_selector('.act-run').click()
+    msg.query_selector('.act-confirm').click()
+    try:
+        panel.wait_for_function("(m) => !!m.querySelector('.act-continue')", arg=msg, timeout=timeout * 1000)
+    except Exception:
+        return msg.query_selector('.result').inner_text(), ''
+    return msg.query_selector('.result').inner_text(), msg.query_selector('.act-continue').get_attribute('class')
+
+def click_continue(panel, msg, timeout=90):
+    n = bot_count(panel)
+    msg.query_selector('.act-continue').click()
+    panel.wait_for_function(f"() => document.querySelectorAll('.msg.bot:not(.pending)').length > {n}", timeout=timeout * 1000)
+    m = last_bot(panel)
+    ta = m.query_selector('.codeblock textarea')
+    return m, (ta.input_value() if ta else ''), m.inner_text()
+
+def run_result_checks(panel, tag, vscode=False, fr=None):
+    """「插入并运行」后自动等运行结束 →「根据运行结果继续」读取输出（出错和正常输出都读），按当前模式给下一步。"""
+    set_mode(panel, 'notebook')
+    ask(panel, '写一段会报错的代码')
+    msg = last_bot(panel)
+    r, cls = run_and_wait_continue(panel, msg)
+    check(f'[{tag}] 插入并运行后自动发现运行出错，显示醒目的「根据运行结果继续」', '运行出错' in r and 'strong' in cls, r + ' | ' + str(cls))
+    n_cells = len(fr.evaluate(MS_CELLS_JS)) if vscode else None
+    m2, code, txt = click_continue(panel, msg)
+    L = last(); u = L.get('user', '')
+    check(f'[{tag}] 点「根据运行结果继续」：读到报错' + ('' if vscode else '和报错前的正常输出') + '，让模型给修好的单元格',
+          'NBAC_BOOM' in u and '请修复' in u and (vscode or 'NBAC_BEFORE_BOOM' in u) and 'NBAC_FIXED' in code and '已读取报错' in txt, u[-300:] + ' | ' + txt[:100])
+    if vscode:
+        cells = fr.evaluate(MS_CELLS_JS)
+        helper = [c for c in cells if 'NBAC_ERR' in c['code']]
+        check(f'[{tag}] 输出读不到：插入只读的「读取报错」单元格，从内核写回的 NBAC_ERR 读到报错，不改用户代码',
+              len(cells) == n_cells + 1 and len(helper) == 1 and 'NBAC_BOOM' in helper[0]['code'] and any(c['code'].startswith('print("NBAC_BEFORE_BOOM")\nraise ValueError("NBAC_BOOM")') for c in cells), json.dumps(cells, ensure_ascii=False)[:300])
+    r, cls = run_and_wait_continue(panel, m2)
+    check(f'[{tag}] 修好的单元格运行成功后也显示「根据运行结果继续」（普通按钮）', '运行完成' in r and cls and 'strong' not in cls, r + ' | ' + str(cls))
+    m3, code, txt = click_continue(panel, m2)
+    u = last().get('user', '')
+    check(f'[{tag}] 正常运行完：' + ('输出读不到时如实说明' if vscode else '读到正常输出 NBAC_FIXED 1.0') + '，模型给下一步单元格',
+          '请根据输出判断这一步有没有成功' in u and (('读不到具体输出' in u) if vscode else ('NBAC_FIXED 1.0' in u)) and 'NBAC_NEXT' in code and '已读取运行输出' in txt, u[-300:])
+    # 终端模式：%%bash 出错 → 读到 bash 报错 → 给 bash 命令
+    set_mode(panel, 'terminal')
+    ask(panel, '会报错的命令')
+    msg = last_bot(panel)
+    r, cls = run_and_wait_continue(panel, msg)
+    check(f'[{tag}] 终端模式：%%bash 单元格运行出错也能自动发现', '运行出错' in r and 'strong' in cls, r)
+    m4, code, txt = click_continue(panel, msg)
+    L = last(); u = L.get('user', '')
+    check(f'[{tag}] 终端模式：读到 bash 的报错' + ('（读取报错单元格）' if vscode else '和输出') + '，按终端格式给命令（「在 Notebook 里运行」）',
+          ('CalledProcessError' in u if vscode else ('NBAC_BASH_ERR' in u and 'NBAC_BASH_OUT' in u)) and '```bash' in u and '终端（bash）助手' in L.get('system', '')
+          and m4.query_selector('.act-bash') is not None and 'NBAC_BASH' in code, u[-300:])
+    r, cls = run_and_wait_continue(panel, m4)
+    check(f'[{tag}] 终端模式：%%bash 运行成功后也能继续', '运行完成' in r and cls and 'strong' not in cls, r)
+    m5, code, _ = click_continue(panel, m4)
+    u = last().get('user', '')
+    check(f'[{tag}] 终端模式：根据运行结果给下一步命令', '下一步需要运行的命令' in u and (vscode or 'NBAC_BASH 42' in u) and m5.query_selector('.act-bash') is not None, u[-200:])
+    if not vscode:
+        # + →「修复当前报错」直接读选中单元格的运行结果（这里选中的是刚运行成功的 %%bash 单元格 → 按输出给下一步）
+        _, _, txt = ask(panel, fix=True)
+        u = last().get('user', '')
+        check(f'[{tag}] + →「修复当前报错」读取当前单元格的运行输出（不只是报错），按终端格式给下一步', 'NBAC_BASH 42' in u and '下一步需要运行的命令' in u and '已读取运行输出' in txt, u[-200:])
+    set_mode(panel, 'notebook')
+
+def chat_attach_checks(panel, tag):
+    """聊天模式：+ 是「添加图片或文件」；文本文件内容放进消息，图片按多模态发送；其余菜单项仍可用。"""
+    make_attachments()
+    set_mode(panel, 'chat')
+    panel.click('#plusBtn')
+    vis = panel.is_visible('#attachFile') and panel.is_visible('#includeContext') and not panel.is_visible('#fixError') and not panel.is_visible('#probeHw')
+    panel.click('#plusBtn')
+    set_mode(panel, 'notebook')
+    panel.click('#plusBtn')
+    vis_nb = not panel.is_visible('#attachFile') and panel.is_visible('#fixError') and panel.is_visible('#probeHw')
+    panel.click('#plusBtn')
+    set_mode(panel, 'chat')
+    panel.set_input_files('#fileInput', [str(ATT_DIR / 'notes.txt'), str(ATT_DIR / 'shot.png')])
+    panel.wait_for_function("() => document.querySelectorAll('.att-chip').length === 2", timeout=5000)
+    _, txt, meta = ask(panel, '看看这两个附件')
+    L = last()
+    check(f'[{tag}] 聊天模式 + 是「添加图片或文件」（Notebook/终端模式还是原来的菜单）；文本文件内容进消息，图片按多模态发送',
+          vis and vis_nb and 'NBAC_ATTACH_TXT' in L.get('user', '') and L.get('images') == 1 and '1 张图片' in meta and not panel.query_selector_all('.att-chip'),
+          json.dumps({'vis': vis, 'nb': vis_nb, 'img': L.get('images'), 'meta': meta}, ensure_ascii=False))
+    set_mode(panel, 'notebook')
+
 def test_jupyterlab(ctx, sw, port, mode):
     print(f'\n=== JupyterLab ({mode}) on :{port} ===', flush=True)
     page = prepare_lab_page(ctx, port)
@@ -217,7 +321,14 @@ def test_jupyterlab(ctx, sw, port, mode):
     r = click_and_wait_result(panel, msg, '.act-confirm')
     check(f'[{mode}] 修复后的单元格运行成功（输出 NBAC_FIXED 1.0）', wait_text(page, 'NBAC_FIXED 1.0'), r)
 
+    fix_msg = msg
+    run_result_checks(panel, mode)
+    chat_attach_checks(panel, mode)
+    if mode == 'app':
+        autofix_checks(panel, page)
     if mode == 'dom':
+        page.query_selector_all('.jp-Notebook .jp-Cell .cm-content')[1].click()
+        msg = fix_msg
         fallback_checks('dom', page, panel, msg, COUNT_JS, FIXED_N_JS)
     panel.close(); page.close()
 
@@ -451,6 +562,11 @@ def test_kaggle(ctx, sw):
     r = click_and_wait_result(panel, msg, '.act-confirm')
     check('[kaggle] 修复后的单元格在 iframe 里运行成功（NBAC_FIXED 1.0）', wait_text(fr, 'NBAC_FIXED 1.0'), r)
 
+    fix_msg = msg
+    run_result_checks(panel, 'kaggle')
+    chat_attach_checks(panel, 'kaggle')
+    cells()[1].click()
+    msg = fix_msg
     # Kaggle 的 iframe 里工具栏可能被隐藏，或者根本没有这些按钮
     fallback_checks('kaggle', fr, panel, msg, COUNT_JS, FIXED_N_JS)
     page.screenshot(path=str(SHOT_DIR / 'kaggle-notebook.png'))
@@ -524,6 +640,11 @@ def test_aistudio(ctx, sw):
     msg.query_selector('.act-run').click()
     r = click_and_wait_result(panel, msg, '.act-confirm')
     check('[aistudio] 修复报错后运行成功（NBAC_FIXED 1.0）', 'NBAC_FIXED' in code and wait_text(fr, 'NBAC_FIXED 1.0'), r)
+    fix_msg = msg
+    run_result_checks(panel, 'aistudio')
+    chat_attach_checks(panel, 'aistudio')
+    cells()[1].click()
+    msg = fix_msg
     fallback_checks('aistudio', fr, panel, msg, COUNT_JS, FIXED_N_JS)
     page.screenshot(path=str(SHOT_DIR / 'aistudio-notebook.png'))
     panel.screenshot(path=str(SHOT_DIR / 'aistudio-panel.png'))
@@ -558,6 +679,8 @@ def test_aistudio_monaco(ctx, sw):
     val = fr.evaluate(MONACO_ACTIVE_JS)
     check('[monaco] 用中文标题的单元格工具栏按钮插入，并通过 AMD loader 里的 Monaco API 写入（内容完全一致）', fr.eval_on_selector_all('.jp-Cell', COUNT_JS) == n0 + 1 and val.strip() == code.strip() and 'monaco-api(amd-require)' in r, r + ' | ' + val[:80])
     check('[monaco] Shift+Enter 运行（夹具的假运行）', wait_text(fr, 'NBAC_FIXED 1.0', 10000))
+    run_result_checks(panel, 'monaco')
+    chat_attach_checks(panel, 'monaco')
     page.screenshot(path=str(SHOT_DIR / 'aistudio-monaco.png'))
     panel.close(); page.close()
 
@@ -713,6 +836,10 @@ def test_modelscope(ctx, sw):
     outs = fr.evaluate("() => window.__fixtureOutputs")
     cells = fr.evaluate(MS_CELLS_JS)
     check('[ms] 修复代码插在出错单元格下方并运行（NBAC_FIXED 1.0）', outs[-1]['text'] == 'NBAC_FIXED 1.0' and outs[-1]['index'] == 2 and len(cells) == 5, r)
+    hw = panel.inner_text('#hw')
+    check('[ms] 自动检测没跑时硬件行写明原因（12 小时内已经插过检测单元格）', '12 小时内' in hw, hw)
+    run_result_checks(panel, 'ms', vscode=True, fr=fr)
+    chat_attach_checks(panel, 'ms')
     page.screenshot(path=str(SHOT_DIR / 'modelscope-notebook.png'))
     panel.screenshot(path=str(SHOT_DIR / 'modelscope-panel.png'))
     panel.close(); page.close()
@@ -805,6 +932,7 @@ ANRUI = 'http://jupyter.anruicloud.test:8903'
 
 DSW_BASE = '/dsw-2367657/'
 DSW = 'http://dsw-gateway-cn-hangzhou.data.aliyun.test:8904'
+DSW_IDE = 'http://dsw-gateway-cn-hangzhou.data.aliyun.test:8771'
 
 def test_dsw(ctx, sw):
     """ModelScope GPU 实例（阿里云 PAI-DSW）：https://dsw-gateway-cn-hangzhou.data.aliyun.com/dsw-xxxx/lab?appId=MAAS&...，
@@ -853,6 +981,8 @@ def test_dsw(ctx, sw):
     msg.query_selector('.act-run').click()
     r = click_and_wait_result(panel, msg, '.act-confirm')
     check('[dsw] 确认后插入并运行，输出 NBAC_OK 42 True', wait_text(page, 'NBAC_OK 42 True') and lab_cell_count(page) == n0 + 1, r)
+    run_result_checks(panel, 'dsw')
+    chat_attach_checks(panel, 'dsw')
     panel.close(); page.close()
 
 def test_anrui(ctx, sw):
@@ -909,6 +1039,8 @@ def test_anrui(ctx, sw):
     msg.query_selector('.act-run').click()
     r = click_and_wait_result(panel, msg, '.act-confirm')
     check('[anrui] 修复报错后运行成功（NBAC_FIXED 1.0）', 'NBAC_FIXED' in code and wait_text(page, 'NBAC_FIXED 1.0'), r)
+    run_result_checks(panel, 'anrui')
+    chat_attach_checks(panel, 'anrui')
     # 「+ → 检测硬件」：JupyterLab 上直接在内核里静默检测，不新建单元格（本机没有 torch / GPU → 显卡沿用页面的 AMD）
     n_bots = bot_count(panel)
     n0 = lab_cell_count(page)
@@ -1030,17 +1162,26 @@ def test_options(ctx, sw):
     p.screenshot(path=str(SHOT_DIR / 'options.png'), full_page=True)
     p.close()
 
-def chat_store(panel):
-    return panel.evaluate("async () => (await chrome.storage.local.get('nbacChatHistory')).nbacChatHistory || []")
+CONV_JS = """async () => { const s = await chrome.storage.local.get(null); const idx = s.nbacConvIndex || {currentId: null, list: []};
+  return {idx, keys: Object.keys(s).filter(k => k.startsWith('nbacConv:')), old: 'nbacChatHistory' in s, msgs: idx.currentId ? (s['nbacConv:' + idx.currentId] || []) : [], all: s}; }"""
+RESET_CONV_JS = "async () => { const s = await chrome.storage.local.get(null); await chrome.storage.local.remove(Object.keys(s).filter(k => k.startsWith('nbacConv') || k === 'nbacChatHistory')); }"
+
+def conv_state(panel):
+    time.sleep(0.4)
+    return panel.evaluate(CONV_JS)
+
+def drawer_titles(panel):
+    return panel.eval_on_selector_all('#convList .conv-item', 'els => els.map(e => e.querySelector(".conv-title") ? e.querySelector(".conv-title").textContent : "")')
 
 def test_modes(ctx, sw):
-    """0.1.13：三个模式（Notebook / 终端 / 聊天）+ 聊天记录保存、单条删除、清空。"""
+    """0.1.13：三个模式（Notebook / 终端 / 聊天）+ 聊天记录保存（0.1.14 起按对话保存，见 test_conversations）。"""
     print('\n=== 模式切换和聊天记录 ===', flush=True)
     page = prepare_lab_page(ctx, 8900)
     glob = 'http://127.0.0.1:8900/*'
     panel = open_panel(ctx, sw, glob)
     try:
-        set_storage(panel, providers=mock_providers(), active='bailian', thinking='default', includeContext=True, modelCache={}, mode='notebook', nbacChatHistory=[])
+        panel.evaluate(RESET_CONV_JS)
+        set_storage(panel, providers=mock_providers(), active='bailian', thinking='default', includeContext=True, modelCache={}, mode='notebook')
         panel.reload(); wait_status_ok(panel)
         sel = lambda: panel.eval_on_selector('.mode-btn.selected', 'e => e.dataset.mode + "|" + e.textContent')
         labels = panel.eval_on_selector_all('.mode-btn', 'els => els.map(e => e.textContent).join(",")')
@@ -1099,42 +1240,11 @@ def test_modes(ctx, sw):
         cmsg = panel.query_selector('.msg.bot.mode-chat')
         check('[history] 恢复出来的聊天回答没有插入按钮、代码块有复制按钮', cmsg.query_selector('.act-run') is None and cmsg.query_selector('.copy-mini') is not None)
 
-        # 删除单条
-        n_store = len(chat_store(panel))
-        cmsg.query_selector('.msg-del').click()
-        time.sleep(0.5)
-        st = chat_store(panel)
-        check('[delete] 点「删除」只删掉这一条（页面和保存的记录里都没了）',
-              panel.eval_on_selector_all('.msg', 'e => e.length') == 3 and len(st) == n_store - 1 and not any(r.get('mode') == 'chat' and r['role'] == 'bot' for r in st)
-              and 'NBAC_CHAT_END' not in panel.inner_text('#messages'), str(len(st)))
-        umsg = panel.query_selector_all('.msg.user')[-1]
-        umsg.query_selector('.msg-del').click()
-        time.sleep(0.5)
-        check('[delete] 用户消息也能单独删除', panel.eval_on_selector_all('.msg', 'e => e.length') == 2 and len(chat_store(panel)) == n_store - 2)
-        ask(panel, '再问一个问题')
-        L = last()
-        check('[delete] 删掉的消息不再发给模型', not any('NBAC_CHAT_END' in (m.get('content') or '') for m in L['body']['messages'][1:-1])
-              and any('```bash' in (m.get('content') or '') for m in L['body']['messages']))
-        panel.close()
-        panel = open_panel(ctx, sw, glob)
-        wait_status_ok(panel)
-        check('[delete] 删除后重新打开也不会回来', panel.eval_on_selector_all('.msg', 'e => e.length') == 4 and len(chat_store(panel)) == 4)
-
-        # 清空全部
+        check('[history] 消息上不再有逐条删除按钮（改成按对话删除）', not panel.query_selector_all('.msg-del'))
         panel.click('#newChat')
-        check('[clear] 点「新对话」先问「清空全部聊天记录？」', panel.is_visible('#clearConfirm') and '清空全部聊天记录？' in panel.inner_text('#clearConfirm'))
-        panel.click('#clearNo')
-        check('[clear] 取消后记录不变', not panel.is_visible('#clearConfirm') and panel.eval_on_selector_all('.msg', 'e => e.length') == 4)
-        panel.click('#plusBtn'); panel.click('#clearHistory')
-        check('[clear] 「+ → 清空聊天记录」也会先确认', panel.is_visible('#clearConfirm'))
-        panel.click('#clearYes')
-        time.sleep(0.5)
-        check('[clear] 确认后清空：页面回到欢迎页，保存的记录也清空',
-              panel.eval_on_selector_all('.msg', 'e => e.length') == 0 and panel.is_visible('#welcome') and chat_store(panel) == [])
-        panel.close()
-        panel = open_panel(ctx, sw, glob)
-        wait_status_ok(panel)
-        check('[clear] 清空后重新打开还是空的', panel.eval_on_selector_all('.msg', 'e => e.length') == 0 and panel.is_visible('#welcome'))
+        time.sleep(0.4)
+        check('[history] 点「新对话」直接开新对话（不用确认），旧对话保留在对话记录里',
+              panel.eval_on_selector_all('.msg', 'e => e.length') == 0 and panel.is_visible('#welcome') and len(conv_state(panel)['idx']['list']) == 1)
         panel.click('.mode-btn[data-mode="notebook"]')
         time.sleep(0.3)
         code, _, _ = ask(panel, '配置好训练 YOLO11m 的环境')
@@ -1146,6 +1256,228 @@ def test_modes(ctx, sw):
         try: panel.close()
         except Exception: pass
         page.close()
+
+def test_conversations(ctx, sw):
+    """0.1.14：像 Gemini 网页版一样的多个对话：对话记录抽屉、新对话、打开、重命名、删除一个、删除全部；旧版聊天记录迁移；聊天附件。"""
+    print('\n=== 多个对话 + 聊天附件 ===', flush=True)
+    make_attachments()
+    page = prepare_lab_page(ctx, 8900)
+    glob = 'http://127.0.0.1:8900/*'
+    panel = open_panel(ctx, sw, glob)
+    try:
+        # 0.1.13 的单一聊天记录迁移成一个对话
+        panel.evaluate(RESET_CONV_JS)
+        old = [{'id': 'old1', 'role': 'user', 'mode': 'chat', 'text': '旧的问题 NBAC_OLD_Q', 'llm': '旧的问题 NBAC_OLD_Q', 'ts': 1700000000000},
+               {'id': 'old2', 'role': 'bot', 'mode': 'chat', 'text': '旧的回答 NBAC_OLD_A', 'llm': '旧的回答 NBAC_OLD_A', 'ts': 1700000001000}]
+        set_storage(panel, providers=mock_providers(), active='bailian', thinking='default', includeContext=True, mode='chat', nbacChatHistory=old)
+        panel.reload(); wait_status_ok(panel)
+        st = conv_state(panel)
+        check('[conv] 旧版（0.1.13）的聊天记录迁移成一个对话，标题取第一条用户消息',
+              len(st['idx']['list']) == 1 and st['idx']['list'][0]['title'].startswith('旧的问题') and not st['old'] and len(st['msgs']) == 2
+              and 'NBAC_OLD_A' in panel.inner_text('#messages'), json.dumps(st['idx'], ensure_ascii=False)[:300])
+        check('[conv] 消息上没有逐条删除按钮', not panel.query_selector_all('.msg-del'))
+        # 新对话：不用确认，旧的保留；发给模型的上下文只有当前对话
+        panel.click('#newChat')
+        check('[conv] 点「新对话」直接开新对话，不弹确认', panel.eval_on_selector_all('.msg', 'e => e.length') == 0 and panel.is_visible('#welcome'))
+        ask(panel, '第二个对话的问题 NBAC_SECOND')
+        L = last()
+        check('[conv] 新对话发给模型的上下文只有当前对话（不带旧对话）', not any('NBAC_OLD' in json.dumps(m, ensure_ascii=False) for m in L['body']['messages']))
+        ask(panel, '第二个对话的追问')
+        L = last()
+        check('[conv] 同一个对话里的上一轮会作为上下文带上', any('NBAC_SECOND' in json.dumps(m, ensure_ascii=False) for m in L['body']['messages'][:-1]))
+        st = conv_state(panel)
+        panel.click('#historyBtn')
+        panel.wait_for_selector('#convDrawer:not([hidden])', timeout=3000)
+        titles = drawer_titles(panel)
+        check('[conv] 点标题栏的「对话记录」打开抽屉：按最近使用排序，标题取第一条用户消息，当前对话高亮',
+              len(titles) == 2 and titles[0].startswith('第二个对话的问题') and titles[1].startswith('旧的问题')
+              and 'current' in panel.get_attribute('#convList .conv-item:first-child', 'class') and len(st['idx']['list']) == 2, json.dumps(titles, ensure_ascii=False))
+        # 打开旧对话
+        panel.click('#convList .conv-item:nth-child(2) .conv-open')
+        time.sleep(0.4)
+        check('[conv] 点一个对话就打开它，抽屉关上', 'NBAC_OLD_A' in panel.inner_text('#messages') and 'NBAC_SECOND' not in panel.inner_text('#messages') and not panel.is_visible('#convDrawer'))
+        ask(panel, '在旧对话里继续问')
+        L = last()
+        check('[conv] 在旧对话里继续：上下文是旧对话的内容', any('NBAC_OLD_Q' in json.dumps(m, ensure_ascii=False) for m in L['body']['messages']) and not any('NBAC_SECOND' in json.dumps(m, ensure_ascii=False) for m in L['body']['messages']))
+        # 重命名
+        panel.click('#historyBtn')
+        first_id = panel.get_attribute('#convList .conv-item:first-child', 'data-id')
+        panel.click('#convList .conv-item:first-child .conv-rename')
+        panel.fill('.conv-rename-input', '改过名的对话')
+        panel.press('.conv-rename-input', 'Enter')
+        time.sleep(0.4)
+        st = conv_state(panel)
+        check('[conv] 可以重命名对话（保存下来）', drawer_titles(panel)[0] == '改过名的对话' and any(c['id'] == first_id and c['title'] == '改过名的对话' for c in st['idx']['list']), json.dumps(drawer_titles(panel), ensure_ascii=False))
+        # 关掉再打开：对话都在，当前对话恢复
+        panel.close()
+        panel = open_panel(ctx, sw, glob)
+        wait_status_ok(panel)
+        panel.click('#historyBtn')
+        check('[conv] 关掉侧边栏再打开：对话列表和当前对话都还在', len(drawer_titles(panel)) == 2 and 'NBAC_OLD_A' in panel.inner_text('#messages'))
+        # 删除一个（要确认）
+        item = '#convList .conv-item[data-id="%s"]' % first_id
+        panel.click(item + ' .conv-del')
+        vis = panel.is_visible(item + ' .conv-confirm')
+        panel.click(item + ' .conv-del-no')
+        time.sleep(0.3)
+        check('[conv] 删除对话要先确认，取消后不删', vis and len(drawer_titles(panel)) == 2 and not panel.is_visible(item + ' .conv-confirm'))
+        panel.click(item + ' .conv-del'); panel.click(item + ' .conv-del-yes')
+        st = conv_state(panel)
+        check('[conv] 确认后删掉这个对话（列表、页面和保存的数据里都没了），另一个对话保留',
+              len(drawer_titles(panel)) == 1 and len(st['idx']['list']) == 1 and ('nbacConv:' + first_id) not in st['keys'] and st['idx']['currentId'] is None
+              and panel.eval_on_selector_all('.msg', 'e => e.length') == 0, json.dumps(st['idx'], ensure_ascii=False)[:200])
+        # 删除全部（要确认）
+        panel.click('#convNew')
+        ask(panel, '再开一个对话')
+        panel.click('#historyBtn')
+        n = len(drawer_titles(panel))
+        panel.click('#convDeleteAll')
+        vis = panel.is_visible('#convAllConfirm') and '删除全部对话？' in panel.inner_text('#convAllConfirm')
+        panel.click('#convAllNo')
+        check('[conv] 「删除全部」要先确认，取消后不删', n == 2 and vis and len(drawer_titles(panel)) == 2)
+        panel.click('#convDeleteAll'); panel.click('#convAllYes')
+        st = conv_state(panel)
+        check('[conv] 确认「删除全部」后所有对话都删掉', drawer_titles(panel) == [] and panel.is_visible('#convEmpty') and st['idx']['list'] == [] and st['keys'] == []
+              and panel.eval_on_selector_all('.msg', 'e => e.length') == 0, json.dumps(st['idx'], ensure_ascii=False))
+        panel.keyboard.press('Escape')
+        check('[conv] Esc 关掉对话记录抽屉', not panel.is_visible('#convDrawer'))
+
+        # 聊天附件：文件选择、ipynb 只取源码、太长截断、去掉附件、粘贴图片
+        set_mode(panel, 'chat')
+        panel.set_input_files('#fileInput', [str(ATT_DIR / 'demo.ipynb'), str(ATT_DIR / 'big.log'), str(ATT_DIR / 'shot.png')])
+        panel.wait_for_function("() => document.querySelectorAll('.att-chip').length === 3", timeout=5000)
+        chips = panel.inner_text('#attachChips')
+        panel.click('.att-chip:nth-child(3) .att-remove')
+        panel.wait_for_function("() => document.querySelectorAll('.att-chip').length === 2", timeout=3000)
+        _, txt, meta = ask(panel, '帮我看看这个 notebook')
+        L = last(); u = L.get('user', '')
+        check('[attach] 输入框上方显示附件（带 × 可去掉）；.ipynb 只取单元格源码，大文件截断并注明',
+              'demo.ipynb' in chips and 'big.log' in chips and 'shot.png' in chips and 'NBAC_IPYNB_SRC' in u and 'NBAC_IPYNB_MD' in u and 'NBAC_IPYNB_OUTPUT_SHOULD_NOT_APPEAR' not in u
+              and 'NBAC_BIG_HEAD' in u and 'NBAC_BIG_TAIL' not in u and '截断' in u and L.get('images') == 0, chips + ' | ' + u[:200])
+        um = panel.query_selector_all('.msg.user')[-1].inner_text()
+        st = conv_state(panel)
+        urec = [r for r in st['msgs'] if r['role'] == 'user'][-1]
+        check('[attach] 消息里显示附件名；记录里只存附件名等信息（不存文件内容和图片数据）', 'demo.ipynb' in um and 'big.log' in um
+              and [a['name'] for a in urec.get('attachments', [])] == ['demo.ipynb', 'big.log'] and 'NBAC_IPYNB_SRC' not in json.dumps(urec.get('attachments')), json.dumps(urec, ensure_ascii=False)[:300])
+        # 粘贴图片（剪贴板）
+        panel.evaluate("""(b64) => { const bin = atob(b64); const a = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) a[i] = bin.charCodeAt(i);
+          const dt = new DataTransfer(); dt.items.add(new File([a], 'pasted.png', {type: 'image/png'}));
+          document.getElementById('prompt').dispatchEvent(new ClipboardEvent('paste', {clipboardData: dt, bubbles: true, cancelable: true})); }""", base64.b64encode(PNG_1PX).decode())
+        panel.wait_for_function("() => document.querySelectorAll('.att-chip').length === 1", timeout=5000)
+        _, txt, meta = ask(panel, '这张图里是什么')
+        L = last()
+        img = [c for c in L['body']['messages'][-1]['content'] if isinstance(c, dict) and c.get('type') == 'image_url'] if isinstance(L['body']['messages'][-1]['content'], list) else []
+        st = conv_state(panel)
+        check('[attach] 粘贴的图片按 OpenAI 格式（image_url 的 data URL）发送；记录里没有图片数据',
+              L.get('images') == 1 and img and img[0]['image_url']['url'].startswith('data:image/png;base64,') and 'data:image' not in json.dumps(st['msgs']), meta)
+        # 拖放图片
+        panel.evaluate("""(b64) => { const bin = atob(b64); const a = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) a[i] = bin.charCodeAt(i);
+          const dt = new DataTransfer(); dt.items.add(new File([a], 'dropped.png', {type: 'image/png'}));
+          document.getElementById('prompt').dispatchEvent(new DragEvent('drop', {dataTransfer: dt, bubbles: true, cancelable: true})); }""", base64.b64encode(PNG_1PX).decode())
+        ok = True
+        try: panel.wait_for_function("() => document.querySelectorAll('.att-chip').length === 1", timeout=5000)
+        except Exception: ok = False
+        check('[attach] 把图片拖到输入框也能添加', ok and 'dropped.png' in panel.inner_text('#attachChips'))
+        # Gemini：inline_data
+        provs = mock_providers()
+        set_storage(panel, active='gemini')
+        _, txt, meta = ask(panel, '用 Gemini 看图')
+        L = last()
+        check('[attach] Gemini 按 inline_data 发送图片', L.get('format') == 'gemini' and L.get('images') == 1, json.dumps({k: L.get(k) for k in ('format', 'images')}))
+        # 不支持图片的模型：给出清楚的中文提示
+        set_storage(panel, active='bailian', providers=mock_providers(bailian={'model': 'text-only-model'}))
+        panel.set_input_files('#fileInput', [str(ATT_DIR / 'shot.png')])
+        panel.wait_for_function("() => document.querySelectorAll('.att-chip').length === 1", timeout=5000)
+        _, txt, _ = ask(panel, '看图')
+        check('[attach] 模型不支持图片时提示换一个支持图片的多模态（视觉）模型', '不支持图片输入' in txt and '多模态' in txt and 'text-only-model' in txt, txt[:200])
+        # 不支持的文件类型
+        (ATT_DIR / 'x.zip').write_bytes(b'PK')
+        panel.set_input_files('#fileInput', [str(ATT_DIR / 'x.zip')])
+        time.sleep(0.5)
+        notice = panel.inner_text('#notice') if panel.is_visible('#notice') else ''
+        check('[attach] 不支持的文件类型给出提示，不加进附件', not panel.query_selector_all('.att-chip') and 'x.zip' in notice, notice)
+        panel.screenshot(path=str(SHOT_DIR / 'panel-attachments.png'))
+        panel.click('#historyBtn')
+        panel.screenshot(path=str(SHOT_DIR / 'panel-conversations.png'))
+        panel.keyboard.press('Escape')
+    finally:
+        sw.evaluate("() => chrome.storage.local.set({mode: 'notebook'})")
+        try: panel.close()
+        except Exception: pass
+        page.close()
+
+def autofix_checks(panel, page):
+    """「运行出错自动修复」（默认关）：打开后运行出错自动读取报错并生成修复代码，但不自动运行。"""
+    set_mode(panel, 'notebook')
+    panel.click('#plusBtn')
+    default_off = not panel.is_checked('#autoFix')
+    panel.check('#autoFix')
+    panel.click('#plusBtn')
+    stored = panel.evaluate("async () => (await chrome.storage.local.get('autoFix')).autoFix")
+    try:
+        ask(panel, '写一段会报错的代码')
+        msg = last_bot(panel)
+        n = bot_count(panel)
+        msg.query_selector('.act-run').click(); msg.query_selector('.act-confirm').click()
+        ok = True
+        try: panel.wait_for_function(f"() => document.querySelectorAll('.msg.bot:not(.pending)').length > {n}", timeout=90000)
+        except Exception: ok = False
+        m = last_bot(panel)
+        ta = m.query_selector('.codeblock textarea')
+        n_cells = lab_cell_count(page); k = page.evaluate(FIXED_COUNT_JS)
+        time.sleep(3)
+        users = panel.query_selector_all('.msg.user')
+        check('[autofix] 「运行出错自动修复」默认关；打开后运行出错自动读取报错生成修复代码，但不自动运行',
+              default_off and stored is True and ok and '自动根据运行结果修复' in users[-1].inner_text() and ta and 'NBAC_FIXED' in ta.input_value()
+              and lab_cell_count(page) == n_cells and page.evaluate(FIXED_COUNT_JS) == k and m.query_selector('.act-run') is not None)
+    finally:
+        panel.click('#plusBtn'); panel.uncheck('#autoFix'); panel.click('#plusBtn')
+
+def test_dsw_webide(ctx, sw):
+    """PAI-DSW 的 WebIDE（VS Code 网页版）：dsw-gateway-*.data.aliyun.com/dsw-xxxx/ide/，iframe 里是 VS Code 工作台，
+    输出在跨域 webview 里读不到。同一个网关下有 JupyterLab 的 Jupyter 服务：开临时内核静默检测硬件，不插单元格。
+    页面上写着 CPU 是 AMD EPYC，不能当成 AMD 显卡。"""
+    print('\n=== ModelScope DSW WebIDE（VS Code 网页版，内嵌 frame） ===', flush=True)
+    top = DSW_IDE + DSW_BASE + 'ide/'
+    kernels0 = json.loads(urllib.request.urlopen('http://127.0.0.1:8904' + DSW_BASE + 'api/kernels').read())
+    sw.evaluate("() => chrome.storage.local.remove(['nbacHwAutoTried2', 'nbacHardware'])")
+    page = ctx.new_page()
+    page.set_viewport_size({'width': 1100, 'height': 900})
+    page.goto(top + '?kernel=local')
+    fr = wait_frame(page, lambda f: '/ide/notebook/main.html' in f.url and f.evaluate('() => !!window.__fixtureReady'), 'dsw webide', 30)
+    n0 = len(fr.evaluate(MS_CELLS_JS))
+    panel = open_panel(ctx, sw, DSW_IDE + '/dsw-*')
+    set_storage(panel, providers=mock_providers(), active='bailian', thinking='default', includeContext=True)
+    status = wait_status_ok(panel)
+    check('[dsw-ide] 识别为「ModelScope DSW（vscode-notebook，内嵌 frame）」', 'ModelScope DSW（vscode-notebook' in status and '内嵌 frame' in status, status)
+    hw = ''
+    for _ in range(90):
+        hw = panel.inner_text('#hw')
+        if '核 CPU' in hw or '没成功' in hw or '没读到' in hw: break
+        time.sleep(1)
+    if '核 CPU' not in hw:
+        print('DBG diag', json.dumps(panel.evaluate("() => copyDiagnosticsForTest()"), ensure_ascii=False)[:4000])
+    cells = fr.evaluate(MS_CELLS_JS)
+    check('[dsw-ide] 自动检测：通过同一网关的 Jupyter 服务开临时内核静默检测，显示 CPU 核数和内存，不插检测单元格',
+          '核 CPU' in hw and 'GB 内存' in hw and '已检测' in hw and len(cells) == n0 and not any('NBAC_HW' in c['code'] or '_nbac_probe' in c['code'] for c in cells), hw)
+    check('[dsw-ide] 页面上的 AMD EPYC（CPU）不再被当成 AMD 显卡', 'AMD' not in hw and 'ROCm' not in hw, hw)
+    kernels = json.loads(urllib.request.urlopen('http://127.0.0.1:8904' + DSW_BASE + 'api/kernels').read())
+    check('[dsw-ide] 临时内核检测完已关掉', len(kernels) == len(kernels0), json.dumps(kernels)[:200])
+    ask(panel, '训练一个小模型')
+    sysp = last().get('system', '')
+    check('[dsw-ide] 系统提示按 ModelScope DSW + 检测到的配置写（不是 AMD ROCm）', 'ModelScope DSW' in sysp and '核' in sysp and 'ROCm' not in sysp, sysp[-200:])
+    run_result_checks(panel, 'dsw-ide', vscode=True, fr=fr)
+    chat_attach_checks(panel, 'dsw-ide')
+    panel.click('#plusBtn'); panel.click('#probeHw')
+    time.sleep(0.5)
+    n_b = bot_count(panel)
+    try: panel.wait_for_function("(n) => { const b = [...document.querySelectorAll('.msg.bot:not(.pending)')]; return b.length >= n && /已检测硬件|没成功/.test(b[b.length - 1].textContent); }", arg=n_b, timeout=60000)
+    except Exception: pass
+    res = last_bot(panel).inner_text()
+    check('[dsw-ide] + →「检测硬件」也走临时内核（不插单元格）', '已检测硬件' in res and '核 CPU' in res and not any('_nbac_probe' in c['code'] for c in fr.evaluate(MS_CELLS_JS)), res[:200])
+    page.screenshot(path=str(SHOT_DIR / 'dsw-webide.png'))
+    panel.screenshot(path=str(SHOT_DIR / 'dsw-webide-panel.png'))
+    panel.close(); page.close()
 
 def screenshot_demo(ctx, sw):
     """说明用截图：Notebook + 侧边栏（同一个面板页面，以弹窗形式打开）。"""
@@ -1189,8 +1521,8 @@ def main():
             sw = ctx.service_workers[0] if ctx.service_workers else ctx.wait_for_event('serviceworker')
             for t in (test_options, test_models_and_thinking,
                       lambda c, s: test_jupyterlab(c, s, 8899, 'dom'),
-                      lambda c, s: test_jupyterlab(c, s, 8900, 'app'), test_modes,
-                      test_kaggle, test_aistudio, test_aistudio_monaco, test_aistudio_outer, test_modelscope, test_modelscope_autoprobe, test_dsw, test_anrui, test_selfhosted, screenshot_demo):
+                      lambda c, s: test_jupyterlab(c, s, 8900, 'app'), test_modes, test_conversations,
+                      test_kaggle, test_aistudio, test_aistudio_monaco, test_aistudio_outer, test_modelscope, test_modelscope_autoprobe, test_dsw, test_dsw_webide, test_anrui, test_selfhosted, screenshot_demo):
                 only = os.environ.get('NBAC_ONLY')
                 if only and getattr(t, '__name__', '') != only: continue
                 try:

@@ -1,7 +1,7 @@
 // 纯函数（不碰 DOM），给 page.js 用，也方便 node 单元测试（tests/unit_test.mjs 用 vm 加载本文件）。
 (() => {
   const root = typeof window !== 'undefined' ? window : globalThis;
-  const BUILD = '0.1.13'; // 和 manifest 的 version 一致；旧版留在网页里的 helpers 会被替换
+  const BUILD = '0.1.14'; // 和 manifest 的 version 一致；旧版留在网页里的 helpers 会被替换
   if (root.__nbacHelpers && root.__nbacHelpers.build === BUILD) return;
 
   // 比较用：去掉 \r、每行行尾空白、首尾空行
@@ -56,7 +56,10 @@
   // 从页面上的文字（平台顶栏、实例规格、加速器选择等）和网址里猜硬件。
   // 只是提示：真正的硬件以“检测硬件”单元格的运行结果为准。返回 {vendor: 'amd'|'nvidia'|'cpu'|'gpu', model, vramGB, source, evidence} 或 null
   function parseHardwareHints({ text, url, extensions }) {
-    const t = String(text || '').replace(/\s+/g, ' ').slice(0, 30000);
+    // AMD 的 CPU（EPYC、Ryzen 等，云平台的实例规格里很常见）不是 AMD 显卡：先去掉
+    const t = String(text || '').replace(/\s+/g, ' ').slice(0, 30000)
+      .replace(/\bAMD\s*(?:®\s*)?(?:EPYC|Ryzen|Threadripper|Opteron|Athlon|Phenom)\b(?:\s*(?:™|\(TM\)))?(?:\s*[\w-]+){0,3}/gi, ' ')
+      .replace(/\b(?:EPYC|Ryzen|Threadripper)\b/gi, ' ');
     let u = null;
     try { u = new URL(url); } catch { /* ignore */ }
     const amdRe = /\bAMD\b|Radeon|\bROCm\b|\bInstinct\b|\bMI(?:50|60|100|210|250X?|300[AX]?|325X|350X?)\b/gi;
@@ -99,5 +102,11 @@
     return null;
   }
 
-  root.__nbacHelpers = { build: BUILD, normCode, codeMatches, joinViewLines, vscodeKernelHint, platformFromHost, parseHardwareHints };
+  // 输出文字看起来像报错（Python traceback、%%bash 非 0 退出、pip 的 ERROR 等）
+  function looksLikeError(text) {
+    const t = String(text || '');
+    return /Traceback \(most recent call last\)|^\s*\w*(?:Error|Exception)\b[^\n]*(?::|$)|CalledProcessError|returned non-zero exit status|command not found|No such file or directory|^ERROR:/m.test(t);
+  }
+
+  root.__nbacHelpers = { build: BUILD, normCode, codeMatches, joinViewLines, vscodeKernelHint, platformFromHost, parseHardwareHints, looksLikeError };
 })();

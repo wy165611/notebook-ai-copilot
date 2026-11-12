@@ -39,6 +39,7 @@ export const DEFAULTS = {
   active: 'bailian',
   thinking: 'max',
   includeContext: true,
+  autoFix: false, // 运行出错后自动根据运行结果生成修复代码（只生成，不会自动运行）
   mode: 'notebook', // 侧边栏模式：notebook（写单元格）/ terminal（终端命令）/ chat（聊天问答）
   temperature: 0.2,
   providers: Object.fromEntries(PROVIDER_IDS.map((id) => [id, { baseUrl: PRESETS[id].baseUrl, apiKey: '', model: PRESETS[id].model }])),
@@ -176,13 +177,77 @@ export function systemPrompt(platform, hardware, mode = 'notebook') {
   ].join('\n');
 }
 
-export function buildUserMessage({ request, cellCode, errorOutput, fix }) {
+// fix：读取运行结果后让模型给下一步。isError === false 表示运行没报错（给“下一步”），否则按报错修复
+const FIX_LINES = {
+  notebook: '请修复下面这个单元格的报错，输出修好后的完整单元格。',
+  terminal: '请修复下面这个单元格的报错：先用一两句话说原因，再用一个 ```bash 代码块给出修复用的完整命令。',
+  chat: '请解释下面这个单元格为什么报错，并说明怎么修。'
+};
+const NEXT_LINES = {
+  notebook: '下面是刚运行完的单元格和它的运行输出。请根据输出判断这一步有没有成功，然后输出下一步需要运行的完整单元格（如果输出里有问题，就输出修好后的完整单元格）。',
+  terminal: '下面是刚运行完的单元格和它的运行输出。请根据输出判断这一步有没有成功，然后用一个 ```bash 代码块给出下一步需要运行的命令。',
+  chat: '请解读下面这个单元格的运行输出，判断有没有成功，并说明下一步该做什么。'
+};
+export function buildUserMessage({ request, cellCode, errorOutput, fix, isError, mode = 'notebook', attachments = [] }) {
+  mode = normalizeMode(mode);
   const parts = [];
-  if (fix) parts.push('请修复下面这个单元格的报错，输出修好后的完整单元格。');
+  if (fix) parts.push(isError === false ? NEXT_LINES[mode] : FIX_LINES[mode]);
   if (request) parts.push('需求：' + request);
-  if (cellCode) parts.push('当前单元格代码：\n```python\n' + cellCode.slice(0, 8000) + '\n```');
-  if (errorOutput) parts.push('最近的报错输出：\n```\n' + errorOutput.slice(-4000) + '\n```');
+  if (cellCode) parts.push('当前单元格代码：\n```' + (/^%%(bash|sh)\b/.test(cellCode) ? 'bash' : 'python') + '\n' + cellCode.slice(0, 8000) + '\n```');
+  if (errorOutput) parts.push((fix && isError === false ? '运行输出' : '最近的报错输出') + '：\n```\n' + errorOutput.slice(-4000) + '\n```');
+  for (const a of attachments) {
+    if (a.kind !== 'file' || !a.text) continue;
+    parts.push(`附件「${a.name}」${a.truncated ? '（太长，只附上了前 ' + Math.round(a.text.length / 1024) + ' KB）' : ''}：\n\`\`\`${a.lang || ''}\n${a.text}\n\`\`\``);
+  }
   return parts.join('\n\n');
+}
+
+// ---------- 聊天模式的附件：文本类文件内联进消息，图片按各家的多模态格式发送 ----------
+export const MAX_FILE_CHARS = 100 * 1024;
+const TEXT_EXT = /\.(txt|md|markdown|py|ipynb|csv|tsv|json|jsonl|ya?ml|toml|ini|cfg|conf|log|sh|bash|zsh|js|mjs|ts|tsx|jsx|html?|css|xml|sql|r|java|c|cc|cpp|h|hpp|go|rs|rb|php|tex|rst|env\.example|gitignore|dockerfile|properties)$/i;
+const IMAGE_MIME = /^image\/(png|jpe?g|webp|gif)$/i;
+export function attachmentKind(name, mime) {
+  if (IMAGE_MIME.test(mime || '') || /\.(png|jpe?g|webp|gif)$/i.test(name || '')) return 'image';
+  if (/^text\//.test(mime || '') || /json|xml|yaml|x-sh|x-python|javascript/.test(mime || '') || TEXT_EXT.test(name || '') || /^(Dockerfile|Makefile|requirements\.txt|README)$/i.test(name || '')) return 'file';
+  return null;
+}
+export function langOf(name) {
+  const m = String(name || '').toLowerCase().match(/\.([a-z0-9]+)$/);
+  const ext = m ? m[1] : '';
+  return { py: 'python', ipynb: 'python', sh: 'bash', bash: 'bash', yml: 'yaml', md: 'markdown', js: 'javascript', ts: 'typescript' }[ext] || ext;
+}
+// .ipynb：只取各单元格的源码（不带输出），用标记分开
+export function ipynbToText(raw) {
+  let nb;
+  try { nb = JSON.parse(raw); } catch { return raw; }
+  const cells = Array.isArray(nb && nb.cells) ? nb.cells : [];
+  if (!cells.length) return raw;
+  return cells.map((c, i) => `# ---- 单元格 ${i + 1}（${c.cell_type || 'code'}） ----\n` + (Array.isArray(c.source) ? c.source.join('') : String(c.source || ''))).join('\n\n');
+}
+export function prepareTextAttachment(name, raw) {
+  let text = /\.ipynb$/i.test(name) ? ipynbToText(raw) : String(raw || '');
+  let truncated = false;
+  if (text.length > MAX_FILE_CHARS) { text = text.slice(0, MAX_FILE_CHARS) + '\n…（后面还有内容，文件太长已截断）'; truncated = true; }
+  return { kind: 'file', name, text, truncated, size: raw.length, lang: langOf(name) };
+}
+// 发给模型的用户消息内容：有图片时用多模态格式
+export function openaiUserContent(text, images = []) {
+  if (!images.length) return text;
+  return [{ type: 'text', text }, ...images.map((im) => ({ type: 'image_url', image_url: { url: im.dataUrl } }))];
+}
+export function geminiUserParts(text, images = []) {
+  const parts = [{ text }];
+  for (const im of images) {
+    const m = String(im.dataUrl || '').match(/^data:([^;]+);base64,(.*)$/);
+    if (m) parts.push({ inlineData: { mimeType: m[1], data: m[2] } });
+  }
+  return parts;
+}
+// 模型不接受图片时的报错 → 中文提示（不猜哪个模型支持看图，只提示换支持图片的多模态模型）
+export function visionHint(status, raw, model) {
+  if (![400, 404, 415, 422].includes(status)) return ''; // 401 Key 错、403 没权限、429 额度：不是图片的问题
+  if (!/image|vision|multimodal|multi-modal|modal|image_url|inline_?data|content.?type|unsupported.*content|不支持.*(图|多模态)|图片|视觉/i.test(raw || '')) return '';
+  return `当前模型「${model}」好像不支持图片输入（接口返回 ${status}：${raw}）。请点右下角的模型名，换一个支持图片的多模态（视觉）模型再发；或者去掉图片只发文字。`;
 }
 
 export function extractCode(text) {
@@ -256,7 +321,7 @@ export async function listModels(providerId, cfg) {
 
 // ---------- 生成 ----------
 // history: [{role:'user'|'assistant', content}]
-export async function generate(settings, { platform, hardware, userMessage, history = [], signal, mode = 'notebook' }) {
+export async function generate(settings, { platform, hardware, userMessage, history = [], signal, mode = 'notebook', images = [] }) {
   const id = settings.active;
   const p = PRESETS[id];
   const cfg = settings.providers[id];
@@ -272,7 +337,7 @@ export async function generate(settings, { platform, hardware, userMessage, hist
       const genCfg = { temperature };
       if (withThinking && think.thinkingConfig) genCfg.thinkingConfig = think.thinkingConfig;
       const contents = history.map((h) => ({ role: h.role === 'assistant' ? 'model' : 'user', parts: [{ text: h.content }] }));
-      contents.push({ role: 'user', parts: [{ text: userMessage }] });
+      contents.push({ role: 'user', parts: geminiUserParts(userMessage, images) });
       const res = await fetch(`${trimSlash(cfg.baseUrl)}/models/${encodeURIComponent(model)}:generateContent`, {
         method: 'POST', signal,
         headers: { 'Content-Type': 'application/json', 'x-goog-api-key': cfg.apiKey },
@@ -285,7 +350,7 @@ export async function generate(settings, { platform, hardware, userMessage, hist
     }
     const body = {
       model,
-      messages: [{ role: 'system', content: sys }, ...history, { role: 'user', content: userMessage }],
+      messages: [{ role: 'system', content: sys }, ...history, { role: 'user', content: openaiUserContent(userMessage, images) }],
       stream: false
     };
     // 思考模式下很多模型不接受 temperature，开启思考时不传
@@ -312,7 +377,11 @@ export async function generate(settings, { platform, hardware, userMessage, hist
     if (hasThink && e.status === 400 && !/not.?activ|未开通|开通/i.test(e.raw || '')) {
       text = await once(false);
       notice = '这个模型不接受所选的思考强度参数，已改用默认方式重新生成。';
-    } else throw e;
+    } else {
+      const hint = images.length && e.status ? visionHint(e.status, e.raw, model) : '';
+      if (hint) { const e2 = new Error(hint); e2.status = e.status; e2.vision = true; throw e2; }
+      throw e;
+    }
   }
   if (!text) throw new Error('模型没有返回内容');
   return { text, notice, model, providerLabel: p.label };

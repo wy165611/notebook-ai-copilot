@@ -10,8 +10,8 @@ PASS [options] 清除所有 Key
 
 === 服务商 / 模型列表 / 思考强度 ===
 PASS [model] 首次安装默认服务商=阿里云百炼，模型=deepseek-v4.1-flash  [deepseek-v4.1-flash]
-PASS [model] 侧边栏用 Key 拉取 /models 列表  [共 8 个对话模型（已过滤语音/向量/图像等）。带 “/” 的是第三方模型，可能需要先在控制台开通。]
-PASS [model] 过滤掉语音/向量/图像模型  [MiniMax/MiniMax-M3,deepseek-v4.1-flash,deepseek-v4.1-flash-1017,glm-5.3,kimi-k3,no-think-model,old-model-403,qwen3.8-max,deepseek-v4-pro,qwen4-max-preview]
+PASS [model] 侧边栏用 Key 拉取 /models 列表  [共 9 个对话模型（已过滤语音/向量/图像等）。带 “/” 的是第三方模型，可能需要先在控制台开通。]
+PASS [model] 过滤掉语音/向量/图像模型  [MiniMax/MiniMax-M3,deepseek-v4.1-flash,deepseek-v4.1-flash-1017,glm-5.3,kimi-k3,no-think-model,old-model-403,qwen3.8-max,text-only-model,deepseek-v4-pro,qwen4-max-preview]
 PASS [model] 切换模型后按钮显示新模型
 PASS [model] 模型列表已缓存
 PASS [think] qwen 支持 关闭/低/中/高/最高  [{'default': True, 'off': True, 'low': True, 'medium': True, 'high': True, 'max': True}]
@@ -22,10 +22,8 @@ PASS [think] 百炼 “关闭” → enable_thinking=false
 PASS [think] kimi-k3 只能 关闭/高（不支持预算）  [{'default': True, 'off': True, 'low': False, 'medium': False, 'high': True, 'max': False}]
 PASS [think] 模型拒绝思考参数时自动去掉参数重试
 PASS [think] 重试后显示提示  [这个模型不接受所选的思考强度参数，已改用默认方式重新生成。]
-PASS [model] 带“/”第三方模型 400 未开通 → 明确提示  [删除
-模型 MiniMax/MiniMax-M3 在你的账号下还没有开通（400）：Model not activated: please activate the model i]
-PASS [model] 403 → 明确提示没有权限  [删除
-没有权限使用模型 old-model-403（403）：Access denied。这个模型可能已下线，或你的账号无权调用，请换一个模型。]
+PASS [model] 带“/”第三方模型 400 未开通 → 明确提示  [模型 MiniMax/MiniMax-M3 在你的账号下还没有开通（400）：Model not activated: please activate the model in t]
+PASS [model] 403 → 明确提示没有权限  [没有权限使用模型 old-model-403（403）：Access denied。这个模型可能已下线，或你的账号无权调用，请换一个模型。]
 PASS [deepseek] 切换服务商后拉取 DeepSeek 模型列表  [deepseek-flash,deepseek-v4-pro]
 PASS [deepseek] “关闭” → thinking.type=disabled
 PASS [deepseek] “低” → thinking.type=enabled + reasoning_effort=low
@@ -53,6 +51,75 @@ PASS [dom] 确认后插入并运行，看到输出 “NBAC_OK 42 True”  [已�
 PASS [dom] “修复报错”把代码和报错发给模型
 PASS [dom] “修复报错”返回修好的单元格
 PASS [dom] 修复后的单元格运行成功（输出 NBAC_FIXED 1.0）  [已插入新单元格并开始运行（jupyterlab-model(listener-hook)；运行：jupyterlab-model）]
+PASS [dom] 插入并运行后自动发现运行出错，显示醒目的「根据运行结果继续」  [已插入新单元格并开始运行（jupyterlab-model(listener-hook)；运行：jupyterlab-model）。运行出错了，可以点「根据运行结果继续」 | act act-continue danger strong]
+PASS [dom] 点「根据运行结果继续」：读到报错和报错前的正常输出，让模型给修好的单元格  [最近的报错输出：
+```
+NBAC_BEFORE_BOOM
+
+---------------------------------------------------------------------------
+ValueError                                Traceback (most recent call last)
+Cell In[5], line 2
+      1 print("NBAC_BEFORE_BOOM")
+----> 2 raise ValueError("NBAC_BOOM")
+
+ValueError: NBAC_BOOM
+``` | 阿里云百炼 · deepseek-v4.1-flash · 已附带上下文 · 已读取报错
+下面是代码：
+Python · 可直接修改后再插入
+复制
+插入到新单元格
+插入并运行]
+PASS [dom] 修好的单元格运行成功后也显示「根据运行结果继续」（普通按钮）  [已插入新单元格并开始运行（jupyterlab-model(listener-hook)；运行：jupyterlab-model）。运行完成，可以点「根据运行结果继续」让我看输出、给下一步 | act act-continue primary]
+PASS [dom] 正常运行完：读到正常输出 NBAC_FIXED 1.0，模型给下一步单元格  [下面是刚运行完的单元格和它的运行输出。请根据输出判断这一步有没有成功，然后输出下一步需要运行的完整单元格（如果输出里有问题，就输出修好后的完整单元格）。
+
+当前单元格代码：
+```python
+x = 1 / 1  # 除数改成非 0
+print("NBAC_FIXED", x)
+
+```
+
+运行输出：
+```
+NBAC_FIXED 1.0
+```]
+PASS [dom] 终端模式：%%bash 单元格运行出错也能自动发现  [已插入 %%bash 单元格并开始运行（jupyterlab-model(listener-hook)；运行：jupyterlab-model）。运行出错了，可以点「根据运行结果继续」]
+PASS [dom] 终端模式：读到 bash 的报错和输出，按终端格式给命令（「在 Notebook 里运行」）  [           Traceback (most recent call last)
+Cell In[7], line 1
+----> 1 get_ipython().run_cell_magic('bash', '', 'echo "NBAC_BASH_OUT"\necho "NBAC_BASH_ERR" >&2\nexit 3\n')
+
+CalledProcessError: Command 'b'echo "NBAC_BASH_OUT"\necho "NBAC_BASH_ERR" >&2\nexit 3\n'' returned non-zero exit status 3.
+```]
+PASS [dom] 终端模式：%%bash 运行成功后也能继续  [已插入 %%bash 单元格并开始运行（jupyterlab-model(listener-hook)；运行：jupyterlab-model）。运行完成，可以点「根据运行结果继续」让我看输出、给下一步]
+PASS [dom] 终端模式：根据运行结果给下一步命令  [下面是刚运行完的单元格和它的运行输出。请根据输出判断这一步有没有成功，然后用一个 ```bash 代码块给出下一步需要运行的命令。
+
+当前单元格代码：
+```bash
+%%bash
+# 测试用命令
+echo "NBAC_BASH $((6 * 7))"
+
+```
+
+运行输出：
+```
+NBAC_BASH 42
+```]
+PASS [dom] + →「修复当前报错」读取当前单元格的运行输出（不只是报错），按终端格式给下一步  [下面是刚运行完的单元格和它的运行输出。请根据输出判断这一步有没有成功，然后用一个 ```bash 代码块给出下一步需要运行的命令。
+
+当前单元格代码：
+```bash
+%%bash
+# 测试用命令
+echo "NBAC_BASH $((6 * 7))"
+
+```
+
+运行输出：
+```
+NBAC_BASH 42
+```]
+PASS [dom] 聊天模式 + 是「添加图片或文件」（Notebook/终端模式还是原来的菜单）；文本文件内容进消息，图片按多模态发送  [{"vis": true, "nb": true, "img": 1, "meta": "阿里云百炼 · deepseek-v4.1-flash · 已附带上下文 · 1 张图片 · 聊天模式"}]
 PASS [dom] 工具栏被隐藏时仍能插入并运行（用隐藏的工具栏按钮）  [已插入新单元格并开始运行（toolbar-button+cm6；运行：keyboard）]
 PASS [dom] 没有任何按钮时用快捷键/底部添加区插入并用 Shift+Enter 运行  [已插入新单元格并开始运行（keyboard+cm6；运行：keyboard）]
 
@@ -74,6 +141,76 @@ PASS [app] 确认后插入并运行，看到输出 “NBAC_OK 42 True”  [已�
 PASS [app] “修复报错”把代码和报错发给模型
 PASS [app] “修复报错”返回修好的单元格
 PASS [app] 修复后的单元格运行成功（输出 NBAC_FIXED 1.0）  [已插入新单元格并开始运行（jupyterlab-commands；运行：jupyterlab-commands）]
+PASS [app] 插入并运行后自动发现运行出错，显示醒目的「根据运行结果继续」  [已插入新单元格并开始运行（jupyterlab-commands；运行：jupyterlab-commands）。运行出错了，可以点「根据运行结果继续」 | act act-continue danger strong]
+PASS [app] 点「根据运行结果继续」：读到报错和报错前的正常输出，让模型给修好的单元格  [最近的报错输出：
+```
+NBAC_BEFORE_BOOM
+
+---------------------------------------------------------------------------
+ValueError                                Traceback (most recent call last)
+Cell In[5], line 2
+      1 print("NBAC_BEFORE_BOOM")
+----> 2 raise ValueError("NBAC_BOOM")
+
+ValueError: NBAC_BOOM
+``` | 阿里云百炼 · deepseek-v4.1-flash · 已附带上下文 · 已读取报错
+下面是代码：
+Python · 可直接修改后再插入
+复制
+插入到新单元格
+插入并运行]
+PASS [app] 修好的单元格运行成功后也显示「根据运行结果继续」（普通按钮）  [已插入新单元格并开始运行（jupyterlab-commands；运行：jupyterlab-commands）。运行完成，可以点「根据运行结果继续」让我看输出、给下一步 | act act-continue primary]
+PASS [app] 正常运行完：读到正常输出 NBAC_FIXED 1.0，模型给下一步单元格  [下面是刚运行完的单元格和它的运行输出。请根据输出判断这一步有没有成功，然后输出下一步需要运行的完整单元格（如果输出里有问题，就输出修好后的完整单元格）。
+
+当前单元格代码：
+```python
+x = 1 / 1  # 除数改成非 0
+print("NBAC_FIXED", x)
+
+```
+
+运行输出：
+```
+NBAC_FIXED 1.0
+```]
+PASS [app] 终端模式：%%bash 单元格运行出错也能自动发现  [已插入 %%bash 单元格并开始运行（jupyterlab-commands；运行：jupyterlab-commands）。运行出错了，可以点「根据运行结果继续」]
+PASS [app] 终端模式：读到 bash 的报错和输出，按终端格式给命令（「在 Notebook 里运行」）  [           Traceback (most recent call last)
+Cell In[7], line 1
+----> 1 get_ipython().run_cell_magic('bash', '', 'echo "NBAC_BASH_OUT"\necho "NBAC_BASH_ERR" >&2\nexit 3\n')
+
+CalledProcessError: Command 'b'echo "NBAC_BASH_OUT"\necho "NBAC_BASH_ERR" >&2\nexit 3\n'' returned non-zero exit status 3.
+```]
+PASS [app] 终端模式：%%bash 运行成功后也能继续  [已插入 %%bash 单元格并开始运行（jupyterlab-commands；运行：jupyterlab-commands）。运行完成，可以点「根据运行结果继续」让我看输出、给下一步]
+PASS [app] 终端模式：根据运行结果给下一步命令  [下面是刚运行完的单元格和它的运行输出。请根据输出判断这一步有没有成功，然后用一个 ```bash 代码块给出下一步需要运行的命令。
+
+当前单元格代码：
+```bash
+%%bash
+# 测试用命令
+echo "NBAC_BASH $((6 * 7))"
+
+```
+
+运行输出：
+```
+NBAC_BASH 42
+```]
+PASS [app] + →「修复当前报错」读取当前单元格的运行输出（不只是报错），按终端格式给下一步  [下面是刚运行完的单元格和它的运行输出。请根据输出判断这一步有没有成功，然后用一个 ```bash 代码块给出下一步需要运行的命令。
+
+当前单元格代码：
+```bash
+%%bash
+# 测试用命令
+echo "NBAC_BASH $((6 * 7))"
+
+```
+
+运行输出：
+```
+NBAC_BASH 42
+```]
+PASS [app] 聊天模式 + 是「添加图片或文件」（Notebook/终端模式还是原来的菜单）；文本文件内容进消息，图片按多模态发送  [{"vis": true, "nb": true, "img": 1, "meta": "阿里云百炼 · deepseek-v4.1-flash · 已附带上下文 · 1 张图片 · 聊天模式"}]
+PASS [autofix] 「运行出错自动修复」默认关；打开后运行出错自动读取报错生成修复代码，但不自动运行
 
 === 模式切换和聊天记录 ===
 PASS [modes] 输入框上方有 Notebook / 终端 / 聊天 三个模式，默认 Notebook  [Notebook,终端,聊天]
@@ -92,22 +229,54 @@ PASS [chat] 回答里的代码块单独显示，并有复制按钮
 PASS [history] 关掉侧边栏再打开，聊天记录和模式都还在  [2 2 chat|聊天]
 PASS [history] 恢复出来的终端回答，「在 Notebook 里运行」照样能用  [已插入 %%bash 单元格并开始运行（jupyterlab-commands；运行：jupyterlab-commands）]
 PASS [history] 恢复出来的聊天回答没有插入按钮、代码块有复制按钮
-PASS [delete] 点「删除」只删掉这一条（页面和保存的记录里都没了）  [3]
-PASS [delete] 用户消息也能单独删除
-PASS [delete] 删掉的消息不再发给模型
-PASS [delete] 删除后重新打开也不会回来
-PASS [clear] 点「新对话」先问「清空全部聊天记录？」
-PASS [clear] 取消后记录不变
-PASS [clear] 「+ → 清空聊天记录」也会先确认
-PASS [clear] 确认后清空：页面回到欢迎页，保存的记录也清空
-PASS [clear] 清空后重新打开还是空的
+PASS [history] 消息上不再有逐条删除按钮（改成按对话删除）
+PASS [history] 点「新对话」直接开新对话（不用确认），旧对话保留在对话记录里
 PASS [modes] 切回 Notebook 模式，和以前一样生成 Python 单元格
+
+=== 多个对话 + 聊天附件 ===
+PASS [conv] 旧版（0.1.13）的聊天记录迁移成一个对话，标题取第一条用户消息  [{"currentId": "mwdu62dos2y0uw", "list": [{"count": 2, "createdAt": 1700000000000, "id": "mwdu62dos2y0uw", "title": "旧的问题 NBAC_OLD_Q", "updatedAt": 1700000001000}]}]
+PASS [conv] 消息上没有逐条删除按钮
+PASS [conv] 点「新对话」直接开新对话，不弹确认
+PASS [conv] 新对话发给模型的上下文只有当前对话（不带旧对话）
+PASS [conv] 同一个对话里的上一轮会作为上下文带上
+PASS [conv] 点标题栏的「对话记录」打开抽屉：按最近使用排序，标题取第一条用户消息，当前对话高亮  [["第二个对话的问题 NBAC_SECOND", "旧的问题 NBAC_OLD_Q"]]
+PASS [conv] 点一个对话就打开它，抽屉关上
+PASS [conv] 在旧对话里继续：上下文是旧对话的内容
+PASS [conv] 可以重命名对话（保存下来）  [["改过名的对话", "第二个对话的问题 NBAC_SECOND"]]
+PASS [conv] 关掉侧边栏再打开：对话列表和当前对话都还在
+PASS [conv] 删除对话要先确认，取消后不删
+PASS [conv] 确认后删掉这个对话（列表、页面和保存的数据里都没了），另一个对话保留  [{"currentId": null, "list": [{"count": 4, "createdAt": 1794505378942, "id": "mwdu645a767gm2", "title": "第二个对话的问题 NBAC_SECOND", "updatedAt": 1794505379038}]}]
+PASS [conv] 「删除全部」要先确认，取消后不删
+PASS [conv] 确认「删除全部」后所有对话都删掉  [{"currentId": null, "list": []}]
+PASS [conv] Esc 关掉对话记录抽屉
+PASS [attach] 输入框上方显示附件（带 × 可去掉）；.ipynb 只取单元格源码，大文件截断并注明  [demo.ipynb
+×
+big.log（已截断）
+×
+shot.png
+× | 需求：帮我看看这个 notebook
+
+当前单元格代码：
+```python
+y = 1/0
+```
+
+最近的报错输出：
+```
+---------------------------------------------------------------------------
+ZeroDivisionError                         Traceback (most r]
+PASS [attach] 消息里显示附件名；记录里只存附件名等信息（不存文件内容和图片数据）  [{"attachments": [{"kind": "file", "name": "demo.ipynb", "size": 298, "truncated": false}, {"kind": "file", "name": "big.log", "size": 121028, "truncated": true}], "convId": "mwdu68egryo4nn", "id": "mwdu68eg3m8u9z", "llm": "需求：帮我看看这个 notebook\n\n当前单元格代码：\n```python\ny = 1/0\n```\n\n最近的报错输出：\n```\n---]
+PASS [attach] 粘贴的图片按 OpenAI 格式（image_url 的 data URL）发送；记录里没有图片数据  [阿里云百炼 · deepseek-v4.1-flash · 已附带上下文 · 1 张图片 · 聊天模式]
+PASS [attach] 把图片拖到输入框也能添加
+PASS [attach] Gemini 按 inline_data 发送图片  [{"format": "gemini", "images": 1}]
+PASS [attach] 模型不支持图片时提示换一个支持图片的多模态（视觉）模型  [当前模型「text-only-model」好像不支持图片输入（接口返回 400：The model does not support image input: image_url is only supported by multimodal models）。请点右下角的模型名，换一个支持图片的多模态（视觉）模型再发；或者去掉图片只发文字。]
+PASS [attach] 不支持的文件类型给出提示，不加进附件  [没有添加：x.zip（只支持图片和文本类文件）。支持图片（png / jpg / webp / gif）和文本类文件（txt、md、py、ipynb、csv、json、yaml、log 等）。]
 
 === Kaggle（顶层页面 + 跨站 JupyterLab iframe） ===
 PASS [kaggle] iframe 来自另一个站点并加载了 JupyterLab  [http://kkb-production.jupyter-proxy.kagglenet.test:8901/lab/tree/test.ipynb?session=FAKE-SESSION&lsp=true]
 PASS [kaggle] iframe 里没有暴露 window.jupyterapp
 PASS [kaggle] 连上的是 iframe 里的 JupyterLab（不是顶层 kaggle 页面）  [已连接：Kaggle（jupyterlab，JupyterLab 模型，内嵌 frame）]
-PASS [kaggle] 顶层 www.kaggle 页面回报“不是 Notebook”  [frame 0(top): 不是 Notebook  http://www.kaggle.test:8765/code/someone/yolo11m-rdd2022/edit | frame 16: jupyterlab 3 个单元格  http://kkb-production.jupyter-proxy.kagglenet.test:8901/lab/tree/test.ipynb]
+PASS [kaggle] 顶层 www.kaggle 页面回报“不是 Notebook”  [frame 0(top): 不是 Notebook  http://www.kaggle.test:8765/code/someone/yolo11m-rdd2022/edit | frame 17: jupyterlab 3 个单元格  http://kkb-production.jupyter-proxy.kagglenet.test:8901/lab/tree/test.ipynb]
 PASS [kaggle] 从 iframe 读取单元格代码和报错
 PASS [kaggle] 系统提示按海外平台（不加清华镜像）
 PASS [kaggle] 在 iframe 里插入新单元格并写入代码  [已插入到新单元格（jupyterlab-model(listener-hook)），检查无误后在 Notebook 里运行]
@@ -117,6 +286,75 @@ PASS [kaggle] 确认后在 iframe 里插入并运行，输出 NBAC_OK 42 True  [
 PASS [kaggle] 运行走 JupyterLab 模型 + 内核会话，并确认真的开始执行了  [已插入新单元格并开始运行（jupyterlab-model(listener-hook)；运行：jupyterlab-model）]
 PASS [kaggle] 修复报错：把 iframe 里的报错发给模型
 PASS [kaggle] 修复后的单元格在 iframe 里运行成功（NBAC_FIXED 1.0）  [已插入新单元格并开始运行（jupyterlab-model(listener-hook)；运行：jupyterlab-model）]
+PASS [kaggle] 插入并运行后自动发现运行出错，显示醒目的「根据运行结果继续」  [已插入新单元格并开始运行（jupyterlab-model(listener-hook)；运行：jupyterlab-model）。运行出错了，可以点「根据运行结果继续」 | act act-continue danger strong]
+PASS [kaggle] 点「根据运行结果继续」：读到报错和报错前的正常输出，让模型给修好的单元格  [最近的报错输出：
+```
+NBAC_BEFORE_BOOM
+
+---------------------------------------------------------------------------
+ValueError                                Traceback (most recent call last)
+Cell In[5], line 2
+      1 print("NBAC_BEFORE_BOOM")
+----> 2 raise ValueError("NBAC_BOOM")
+
+ValueError: NBAC_BOOM
+``` | 阿里云百炼 · deepseek-v4.1-flash · 已附带上下文 · 已读取报错
+下面是代码：
+Python · 可直接修改后再插入
+复制
+插入到新单元格
+插入并运行]
+PASS [kaggle] 修好的单元格运行成功后也显示「根据运行结果继续」（普通按钮）  [已插入新单元格并开始运行（jupyterlab-model(listener-hook)；运行：jupyterlab-model）。运行完成，可以点「根据运行结果继续」让我看输出、给下一步 | act act-continue primary]
+PASS [kaggle] 正常运行完：读到正常输出 NBAC_FIXED 1.0，模型给下一步单元格  [下面是刚运行完的单元格和它的运行输出。请根据输出判断这一步有没有成功，然后输出下一步需要运行的完整单元格（如果输出里有问题，就输出修好后的完整单元格）。
+
+当前单元格代码：
+```python
+x = 1 / 1  # 除数改成非 0
+print("NBAC_FIXED", x)
+
+```
+
+运行输出：
+```
+NBAC_FIXED 1.0
+```]
+PASS [kaggle] 终端模式：%%bash 单元格运行出错也能自动发现  [已插入 %%bash 单元格并开始运行（jupyterlab-model(listener-hook)；运行：jupyterlab-model）。运行出错了，可以点「根据运行结果继续」]
+PASS [kaggle] 终端模式：读到 bash 的报错和输出，按终端格式给命令（「在 Notebook 里运行」）  [           Traceback (most recent call last)
+Cell In[7], line 1
+----> 1 get_ipython().run_cell_magic('bash', '', 'echo "NBAC_BASH_OUT"\necho "NBAC_BASH_ERR" >&2\nexit 3\n')
+
+CalledProcessError: Command 'b'echo "NBAC_BASH_OUT"\necho "NBAC_BASH_ERR" >&2\nexit 3\n'' returned non-zero exit status 3.
+```]
+PASS [kaggle] 终端模式：%%bash 运行成功后也能继续  [已插入 %%bash 单元格并开始运行（jupyterlab-model(listener-hook)；运行：jupyterlab-model）。运行完成，可以点「根据运行结果继续」让我看输出、给下一步]
+PASS [kaggle] 终端模式：根据运行结果给下一步命令  [下面是刚运行完的单元格和它的运行输出。请根据输出判断这一步有没有成功，然后用一个 ```bash 代码块给出下一步需要运行的命令。
+
+当前单元格代码：
+```bash
+%%bash
+# 测试用命令
+echo "NBAC_BASH $((6 * 7))"
+
+```
+
+运行输出：
+```
+NBAC_BASH 42
+```]
+PASS [kaggle] + →「修复当前报错」读取当前单元格的运行输出（不只是报错），按终端格式给下一步  [下面是刚运行完的单元格和它的运行输出。请根据输出判断这一步有没有成功，然后用一个 ```bash 代码块给出下一步需要运行的命令。
+
+当前单元格代码：
+```bash
+%%bash
+# 测试用命令
+echo "NBAC_BASH $((6 * 7))"
+
+```
+
+运行输出：
+```
+NBAC_BASH 42
+```]
+PASS [kaggle] 聊天模式 + 是「添加图片或文件」（Notebook/终端模式还是原来的菜单）；文本文件内容进消息，图片按多模态发送  [{"vis": true, "nb": true, "img": 1, "meta": "阿里云百炼 · deepseek-v4.1-flash · 已附带上下文 · 1 张图片 · 聊天模式"}]
 PASS [kaggle] 工具栏被隐藏时仍能插入并运行（用隐藏的工具栏按钮）  [已插入新单元格并开始运行（toolbar-button+cm6；运行：keyboard）]
 PASS [kaggle] 没有任何按钮时用快捷键/底部添加区插入并用 Shift+Enter 运行  [已插入新单元格并开始运行（notebook-footer(末尾)+cm6，找不到“在下方插入”，已加到 Notebook 末尾；运行：keyboard）]
 
@@ -126,13 +364,82 @@ PASS [aistudio] 页面里有 VS Code 诱饵 frame 和嵌套 webview  [http://ais
 PASS [aistudio] iframe 里没有暴露 window.jupyterapp
 PASS [aistudio] JupyterLab 是中文界面（按钮标题为中文）  [下方插入单元格 (B)]
 PASS [aistudio] 连上 #jupyterlab-frame（平台识别为飞桨 AI Studio）  [已连接：飞桨 AI Studio（jupyterlab，JupyterLab 模型，内嵌 frame）]
-PASS [aistudio] 宿主页、VS Code frame 和 webview 都回报“不是 Notebook”  [frame 19: 不是 Notebook  http://aistudio.baidu.test:8770/bj-cpu-01/user/123/456/vscode/ | frame 20: jupyterlab 3 个单元格  http://aistudio.baidu.test:8770/bj-cpu-01/user/123/456/lab/tree/test.ipynb | frame 0(top): 不是 Notebook  http://aistudio.baidu.test:8770/bj-cpu-01/user/123/456/home#codelab | frame 21: 不是 Notebook  http://aistudio.baidu.test:8770/bj-cpu-01/user/123/456/vscode/webview.html]
+PASS [aistudio] 宿主页、VS Code frame 和 webview 都回报“不是 Notebook”  [frame 22: 不是 Notebook  http://aistudio.baidu.test:8770/bj-cpu-01/user/123/456/vscode/webview.html | frame 21: jupyterlab 3 个单元格  http://aistudio.baidu.test:8770/bj-cpu-01/user/123/456/lab/tree/test.ipynb | frame 20: 不是 Notebook  http://aistudio.baidu.test:8770/bj-cpu-01/user/123/456/vscode/ | frame 0(top): 不是 Notebook  http://aistudio.baidu.test:8770/bj-cpu-01/user/123/456/home#codelab]
 PASS [aistudio] 读取单元格代码和报错
 PASS [aistudio] 系统提示带清华镜像（国内平台）
 PASS [aistudio] 打字/粘贴全被拦掉时，仍通过 JupyterLab 模型（webpack 共享作用域）插入并写入代码  [已插入到新单元格（jupyterlab-model(share-scope:default:4.6.6)），检查无误后在 Notebook 里运行]
 PASS [aistudio] 运行前要确认
 PASS [aistudio] 确认后插入并运行，输出 NBAC_OK 42 True  [已插入新单元格并开始运行（jupyterlab-model(listener-hook)；运行：jupyterlab-model）]
 PASS [aistudio] 修复报错后运行成功（NBAC_FIXED 1.0）  [已插入新单元格并开始运行（jupyterlab-model(listener-hook)；运行：jupyterlab-model）]
+PASS [aistudio] 插入并运行后自动发现运行出错，显示醒目的「根据运行结果继续」  [已插入新单元格并开始运行（jupyterlab-model(listener-hook)；运行：jupyterlab-model）。运行出错了，可以点「根据运行结果继续」 | act act-continue danger strong]
+PASS [aistudio] 点「根据运行结果继续」：读到报错和报错前的正常输出，让模型给修好的单元格  [最近的报错输出：
+```
+NBAC_BEFORE_BOOM
+
+---------------------------------------------------------------------------
+ValueError                                Traceback (most recent call last)
+Cell In[5], line 2
+      1 print("NBAC_BEFORE_BOOM")
+----> 2 raise ValueError("NBAC_BOOM")
+
+ValueError: NBAC_BOOM
+``` | 阿里云百炼 · deepseek-v4.1-flash · 已附带上下文 · 已读取报错
+下面是代码：
+Python · 可直接修改后再插入
+复制
+插入到新单元格
+插入并运行]
+PASS [aistudio] 修好的单元格运行成功后也显示「根据运行结果继续」（普通按钮）  [已插入新单元格并开始运行（jupyterlab-model(listener-hook)；运行：jupyterlab-model）。运行完成，可以点「根据运行结果继续」让我看输出、给下一步 | act act-continue primary]
+PASS [aistudio] 正常运行完：读到正常输出 NBAC_FIXED 1.0，模型给下一步单元格  [下面是刚运行完的单元格和它的运行输出。请根据输出判断这一步有没有成功，然后输出下一步需要运行的完整单元格（如果输出里有问题，就输出修好后的完整单元格）。
+
+当前单元格代码：
+```python
+x = 1 / 1  # 除数改成非 0
+print("NBAC_FIXED", x)
+
+```
+
+运行输出：
+```
+NBAC_FIXED 1.0
+```]
+PASS [aistudio] 终端模式：%%bash 单元格运行出错也能自动发现  [已插入 %%bash 单元格并开始运行（jupyterlab-model(listener-hook)；运行：jupyterlab-model）。运行出错了，可以点「根据运行结果继续」]
+PASS [aistudio] 终端模式：读到 bash 的报错和输出，按终端格式给命令（「在 Notebook 里运行」）  [           Traceback (most recent call last)
+Cell In[7], line 1
+----> 1 get_ipython().run_cell_magic('bash', '', 'echo "NBAC_BASH_OUT"\necho "NBAC_BASH_ERR" >&2\nexit 3\n')
+
+CalledProcessError: Command 'b'echo "NBAC_BASH_OUT"\necho "NBAC_BASH_ERR" >&2\nexit 3\n'' returned non-zero exit status 3.
+```]
+PASS [aistudio] 终端模式：%%bash 运行成功后也能继续  [已插入 %%bash 单元格并开始运行（jupyterlab-model(listener-hook)；运行：jupyterlab-model）。运行完成，可以点「根据运行结果继续」让我看输出、给下一步]
+PASS [aistudio] 终端模式：根据运行结果给下一步命令  [下面是刚运行完的单元格和它的运行输出。请根据输出判断这一步有没有成功，然后用一个 ```bash 代码块给出下一步需要运行的命令。
+
+当前单元格代码：
+```bash
+%%bash
+# 测试用命令
+echo "NBAC_BASH $((6 * 7))"
+
+```
+
+运行输出：
+```
+NBAC_BASH 42
+```]
+PASS [aistudio] + →「修复当前报错」读取当前单元格的运行输出（不只是报错），按终端格式给下一步  [下面是刚运行完的单元格和它的运行输出。请根据输出判断这一步有没有成功，然后用一个 ```bash 代码块给出下一步需要运行的命令。
+
+当前单元格代码：
+```bash
+%%bash
+# 测试用命令
+echo "NBAC_BASH $((6 * 7))"
+
+```
+
+运行输出：
+```
+NBAC_BASH 42
+```]
+PASS [aistudio] 聊天模式 + 是「添加图片或文件」（Notebook/终端模式还是原来的菜单）；文本文件内容进消息，图片按多模态发送  [{"vis": true, "nb": true, "img": 1, "meta": "阿里云百炼 · deepseek-v4.1-flash · 已附带上下文 · 1 张图片 · 聊天模式"}]
 PASS [aistudio] 工具栏被隐藏时仍能插入并运行（用隐藏的工具栏按钮）  [已插入新单元格并开始运行（toolbar-button+cm6；运行：keyboard）]
 PASS [aistudio] 没有任何按钮时用快捷键/底部添加区插入并用 Shift+Enter 运行  [已插入新单元格并开始运行（keyboard+cm6；运行：keyboard）]
 
@@ -153,6 +460,84 @@ PASS [monaco] 用中文标题的单元格工具栏按钮插入，并通过 AMD l
 print("NBAC_FIXED", x)
 ]
 PASS [monaco] Shift+Enter 运行（夹具的假运行）
+PASS [monaco] 插入并运行后自动发现运行出错，显示醒目的「根据运行结果继续」  [已插入新单元格并开始运行（toolbar-button+monaco-api(amd-require)；运行：keyboard）。运行出错了，可以点「根据运行结果继续」 | act act-continue danger strong]
+PASS [monaco] 点「根据运行结果继续」：读到报错和报错前的正常输出，让模型给修好的单元格  [aise ValueError("NBAC_BOOM")
+
+```
+
+最近的报错输出：
+```
+NBAC_BEFORE_BOOM
+---------------------------------------------------------------------------
+ValueError                                Traceback (most recent call last)
+Cell In[5], line 2
+----> 2 raise ValueError("NBAC_BOOM")
+
+ValueError: NBAC_BOOM
+``` | 阿里云百炼 · deepseek-v4.1-flash · 已附带上下文 · 已读取报错
+下面是代码：
+Python · 可直接修改后再插入
+复制
+插入到新单元格
+插入并运行]
+PASS [monaco] 修好的单元格运行成功后也显示「根据运行结果继续」（普通按钮）  [已插入新单元格并开始运行（toolbar-button+monaco-api(amd-require)；运行：keyboard）。运行完成，可以点「根据运行结果继续」让我看输出、给下一步 | act act-continue primary]
+PASS [monaco] 正常运行完：读到正常输出 NBAC_FIXED 1.0，模型给下一步单元格  [下面是刚运行完的单元格和它的运行输出。请根据输出判断这一步有没有成功，然后输出下一步需要运行的完整单元格（如果输出里有问题，就输出修好后的完整单元格）。
+
+当前单元格代码：
+```python
+x = 1 / 1  # 除数改成非 0
+print("NBAC_FIXED", x)
+
+```
+
+运行输出：
+```
+NBAC_FIXED 1.0
+```]
+PASS [monaco] 终端模式：%%bash 单元格运行出错也能自动发现  [已插入 %%bash 单元格并开始运行（toolbar-button+monaco-api(amd-require)；运行：keyboard）。运行出错了，可以点「根据运行结果继续」]
+PASS [monaco] 终端模式：读到 bash 的报错和输出，按终端格式给命令（「在 Notebook 里运行」）  [AC_BASH_ERR" >&2
+exit 3
+
+```
+
+最近的报错输出：
+```
+NBAC_BASH_OUT
+NBAC_BASH_ERR
+---------------------------------------------------------------------------
+CalledProcessError                        Traceback (most recent call last)
+CalledProcessError: Command 'b'echo...'' returned non-zero exit status 3.
+```]
+PASS [monaco] 终端模式：%%bash 运行成功后也能继续  [已插入 %%bash 单元格并开始运行（toolbar-button+monaco-api(amd-require)；运行：keyboard）。运行完成，可以点「根据运行结果继续」让我看输出、给下一步]
+PASS [monaco] 终端模式：根据运行结果给下一步命令  [下面是刚运行完的单元格和它的运行输出。请根据输出判断这一步有没有成功，然后用一个 ```bash 代码块给出下一步需要运行的命令。
+
+当前单元格代码：
+```bash
+%%bash
+# 测试用命令
+echo "NBAC_BASH $((6 * 7))"
+
+```
+
+运行输出：
+```
+NBAC_BASH 42
+```]
+PASS [monaco] + →「修复当前报错」读取当前单元格的运行输出（不只是报错），按终端格式给下一步  [下面是刚运行完的单元格和它的运行输出。请根据输出判断这一步有没有成功，然后用一个 ```bash 代码块给出下一步需要运行的命令。
+
+当前单元格代码：
+```bash
+%%bash
+# 测试用命令
+echo "NBAC_BASH $((6 * 7))"
+
+```
+
+运行输出：
+```
+NBAC_BASH 42
+```]
+PASS [monaco] 聊天模式 + 是「添加图片或文件」（Notebook/终端模式还是原来的菜单）；文本文件内容进消息，图片按多模态发送  [{"vis": true, "nb": true, "img": 1, "meta": "阿里云百炼 · deepseek-v4.1-flash · 已附带上下文 · 1 张图片 · 聊天模式"}]
 PASS [monaco] 拿不到 Monaco API 时对 textarea.inputarea 粘贴写入（内容完全一致）  [已插入到新单元格（toolbar-button+monaco-paste），检查无误后在 Notebook 里运行]
 PASS [monaco] 所有写入方式都失败时：提示失败、代码复制到剪贴板、不运行  [插入失败：没能把代码写进 Monaco 编辑器。代码已复制到剪贴板，请点进 Notebook 的单元格按 Ctrl+V（Mac 上 ⌘V）粘贴（没有运行） | 自动写入单元格失败，代码已复制到剪贴板。如果一直这样，可以点“+ → 复制诊断信息”发给开发者]
 PASS [monaco] 诊断信息里记录了最近一次写入失败的步骤  [{"action": "insertCellBelow", "message": "NBAC_WRITE_FAILED:没能把代码写进 Monaco 编辑器", "stack": "Error: NBAC_WRITE_FAILED:没能把代码写进 Monaco 编辑器\n    at writeMonaco (chrome-extension://kjhoaafikpbmkehjapdhbocpbiicaiig/src/content/page.js:206:11)\n    at async Object.insertCellBelow (chrome-extension://kjhoaaf]
@@ -162,7 +547,7 @@ PASS [outer] 外层编辑器提示去「专业开发」打开 BML Codelab  [这�
 
 === ModelScope Code Editor（VS Code 原生 Notebook，真实 DOM 结构夹具） ===
 PASS [ms] 连上 notebook-ide frame（平台 ModelScope，vscode-notebook）  [已连接：ModelScope（vscode-notebook，内嵌 frame）]
-PASS [ms] 外层页面和 extensionHost frame 回报“不是 Notebook”，跨域 webview 不注入  [frame 0(top): 不是 Notebook  http://modelscope.test:8771/code/workspace | frame 49: vscode-notebook 2 个单元格  http://modelscope.test:8771/notebook/main.html | frame 51: 不是 Notebook  http://modelscope.test:8771/notebook/extensionHostIframe.html]
+PASS [ms] 外层页面和 extensionHost frame 回报“不是 Notebook”，跨域 webview 不注入  [frame 52: 不是 Notebook  http://modelscope.test:8771/notebook/extensionHostIframe.html | frame 50: vscode-notebook 2 个单元格  http://modelscope.test:8771/notebook/main.html | frame 0(top): 不是 Notebook  http://modelscope.test:8771/code/workspace]
 PASS [ms] 识别到真实 Monaco 用的是 EditContext（.native-edit-context，没有 textarea.inputarea）
 PASS [ms] 内核是 /usr/bin/python3 时提示改选 /usr/local/bin/python  [当前内核是 /usr/bin/python3：在 ModelScope 免费 CPU 实例上它没有 ipykernel，运行会报错。请点 Notebook 右上角的内核名，改选 /usr/local/bin/python（Python 3.11），然后再运行。]
 PASS [ms] 读到当前单元格代码（Monaco 渲染行）  [需求：用 pandas 读一个 csv
@@ -172,8 +557,7 @@ PASS [ms] 读到当前单元格代码（Monaco 渲染行）  [需求：用 panda
 y = 1/0
 ```]
 PASS [ms] 系统提示带清华镜像（国内平台）
-PASS [ms] 输出在跨域 webview 里读不到时，修复报错提示把报错贴进输入框  [删除
-这个平台的输出显示在单独的安全框里，扩展读不到报错文字。请把报错信息复制到输入框里，再点“修复当前报错”。]
+PASS [ms] 输出在跨域 webview 里读不到时，修复报错提示把报错贴进输入框  [这个平台的输出显示在单独的安全框里，扩展读不到报错文字。请把报错信息复制到输入框里，再点“修复当前报错”。]
 PASS [ms] 点当前单元格下方的“+ Code”插入，并通过粘贴写入 Monaco（内容完全一致）  [已插入到新单元格（cell-toolbar+monaco-paste），检查无误后在 Notebook 里运行 | [{"i": 0, "focused": false, "code": "x = 41\nprint(x + 1)"}, {"i": 1, "focused": false, "code": "y = 1/0"}, {"i": 2, "focused": true, "code": "import platform\nprint(\"NBAC_OK\", 6 * 7, platform.pytho]
 PASS [ms] 插入后仍提示内核问题  [当前内核是 /usr/bin/python3：在 ModelScope 免费 CPU 实例上它没有 ipykernel，运行会报错。请点 Notebook 右上角的内核名，改选 /usr/local/bin/python（Python 3.11），然后再运行。]
 PASS [ms] 换好内核后提示消失
@@ -192,6 +576,76 @@ y = 1/0
 ZeroDivisionError: division by zero
 ```]
 PASS [ms] 修复代码插在出错单元格下方并运行（NBAC_FIXED 1.0）  [已插入新单元格并开始运行（cell-toolbar+monaco-paste；运行：execute-button）]
+PASS [ms] 自动检测没跑时硬件行写明原因（12 小时内已经插过检测单元格）  [硬件：仅 CPU · 按平台推断（自动检测没成功：这个网页 12 小时内已经自动插过一次检测单元格，但没读到结果，可以点「+ → 检测硬件」）]
+PASS [ms] 插入并运行后自动发现运行出错，显示醒目的「根据运行结果继续」  [已插入新单元格并开始运行（cell-toolbar+monaco-paste；运行：execute-button）。运行出错了（输出在单独的安全框里读不到，点下面的按钮会先自动读取报错），可以点「根据运行结果继续」 | act act-continue danger strong]
+PASS [ms] 点「根据运行结果继续」：读到报错，让模型给修好的单元格  [请修复下面这个单元格的报错，输出修好后的完整单元格。
+
+当前单元格代码：
+```python
+print("NBAC_BEFORE_BOOM")
+raise ValueError("NBAC_BOOM")
+
+```
+
+最近的报错输出：
+```
+Traceback (most recent call last):
+  File "<cell>", line 2, in <module>
+ValueError: NBAC_BOOM
+``` | 阿里云百炼 · deepseek-v4.1-flash · 已附带上下文 · 已读取报错
+下面是代码：
+Python · 可直接修改后再插入
+复制
+插入到新单元格
+插入并运行]
+PASS [ms] 输出读不到：插入只读的「读取报错」单元格，从内核写回的 NBAC_ERR 读到报错，不改用户代码  [[{"i": 0, "focused": false, "code": "x = 41\nprint(x + 1)"}, {"i": 1, "focused": false, "code": "y = 1/0"}, {"i": 2, "focused": false, "code": "x = 1 / 1  # 除数改成非 0\nprint(\"NBAC_FIXED\", x)\n"}, {"i": 3, "focused": false, "code": "print(\"NBAC_BEFORE_BOOM\")\nraise ValueError(\"NBAC_BOOM\")\n"}, {"]
+PASS [ms] 修好的单元格运行成功后也显示「根据运行结果继续」（普通按钮）  [已插入新单元格并开始运行（cell-toolbar+monaco-paste；运行：execute-button）。运行完成，可以点「根据运行结果继续」让我看输出、给下一步 | act act-continue primary]
+PASS [ms] 正常运行完：输出读不到时如实说明，模型给下一步单元格  [下面是刚运行完的单元格和它的运行输出。请根据输出判断这一步有没有成功，然后输出下一步需要运行的完整单元格（如果输出里有问题，就输出修好后的完整单元格）。
+
+当前单元格代码：
+```python
+x = 1 / 1  # 除数改成非 0
+print("NBAC_FIXED", x)
+
+```
+
+运行输出：
+```
+（这一步运行完成，没有报错；这个平台的输出显示在单独的安全框里，读不到具体输出）
+```]
+PASS [ms] 终端模式：%%bash 单元格运行出错也能自动发现  [已插入 %%bash 单元格并开始运行（cell-toolbar+monaco-paste；运行：execute-button）。运行出错了（输出在单独的安全框里读不到，点下面的按钮会先自动读取报错），可以点「根据运行结果继续」]
+PASS [ms] 终端模式：读到 bash 的报错（读取报错单元格），按终端格式给命令（「在 Notebook 里运行」）  [请修复下面这个单元格的报错：先用一两句话说原因，再用一个 ```bash 代码块给出修复用的完整命令。
+
+当前单元格代码：
+```python
+echo "NBAC_BASH_OUT"
+echo "NBAC_BASH_ERR" >&2
+exit 3
+
+```
+
+最近的报错输出：
+```
+Traceback (most recent call last):
+  File "<cell>", line 2, in <module>
+CalledProcessError: Command 'b'echo...'' returned non-zero exit status 3.
+```]
+PASS [ms] 终端模式：%%bash 运行成功后也能继续  [已插入 %%bash 单元格并开始运行（cell-toolbar+monaco-paste；运行：execute-button）。运行完成，可以点「根据运行结果继续」让我看输出、给下一步]
+PASS [ms] 终端模式：根据运行结果给下一步命令  [下面是刚运行完的单元格和它的运行输出。请根据输出判断这一步有没有成功，然后用一个 ```bash 代码块给出下一步需要运行的命令。
+
+当前单元格代码：
+```bash
+%%bash
+# 测试用命令
+echo "NBAC_BASH $((6 * 7))"
+
+```
+
+运行输出：
+```
+（这一步运行完成，没有报错；这个平台的输出显示在单独的安全框里，读不到具体输出）
+```]
+PASS [ms] 聊天模式 + 是「添加图片或文件」（Notebook/终端模式还是原来的菜单）；文本文件内容进消息，图片按多模态发送  [{"vis": true, "nb": true, "img": 1, "meta": "阿里云百炼 · deepseek-v4.1-flash · 已附带上下文 · 1 张图片 · 聊天模式"}]
 PASS [ms] 输出在 DOM 里时直接读到报错  [请修复下面这个单元格的报错，输出修好后的完整单元格。
 
 当前单元格代码：
@@ -209,10 +663,10 @@ PASS [ms] 悬停才出现、只有 title、只响应 mousedown 的单元格 + Co
 PASS [ms] 中文界面的工具栏“代码”按钮：插在当前单元格下方并写入  [已插入到新单元格（notebook-toolbar+monaco-paste），检查无误后在 Notebook 里运行]
 PASS [ms] 没有任何 + Code 按钮时按 B：插在当前单元格下方并写入  [已插入到新单元格（keyboard(B)+monaco-paste），检查无误后在 Notebook 里运行]
 PASS [ms] 插入新单元格失败时写进当前选中的空单元格并运行  [没法新建单元格，已写入当前选中的空单元格并开始运行（current-empty-cell+monaco-paste；运行：execute-button）]
-PASS [diag] 诊断信息包含所有 frame（外层页面、notebook-ide、extensionHost），标出适配器和关键选择器数量  [{"tool": "Notebook AI Copilot", "version": "0.1.13", "at": "2026-11-12T17:05:25.146Z", "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/158.0.0.0 Safari/537.36", "tabUrl": "http://modelscope.test:8771/code/workspace", "target": {"frameId": 86, "platform": "]
+PASS [diag] 诊断信息包含所有 frame（外层页面、notebook-ide、extensionHost），标出适配器和关键选择器数量  [{"tool": "Notebook AI Copilot", "version": "0.1.14", "at": "2026-11-12T17:45:01.538Z", "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/158.0.0.0 Safari/537.36", "tabUrl": "http://modelscope.test:8771/code/workspace", "target": {"frameId": 93, "platform": "]
 PASS [diag] ModelScope 列出候选动作按钮（tag/class/aria-label/title/文字）  [[{"tag": "a", "cls": "action-label codicon codicon-add", "aria": "Add Markdown Cell", "title": "", "text": "+", "visible": true}, {"tag": "a", "cls": "notebook-label", "aria": "", "title": "", "text": "Markdown", "visible": true}, {"tag": "a", "cls": "action-label codicon codicon-notebook-execute-all", "aria": "Run All", "title": "", "text": "▷", "visible": true}]]
 PASS [diag] 诊断信息不含代码、输出和 API Key
-PASS [diag] 点按钮后提示已复制到剪贴板（或显示在框里手动复制）  [诊断信息已复制到剪贴板（3 个 frame，8451 字），直接粘贴发给开发者即可。不含代码、输出和 API Key。]
+PASS [diag] 点按钮后提示已复制到剪贴板（或显示在框里手动复制）  [诊断信息已复制到剪贴板（3 个 frame，8480 字），直接粘贴发给开发者即可。不含代码、输出和 API Key。]
 PASS [ms] Code Editor 里没打开 .ipynb 时提示新建/打开 Notebook  [ModelScope Code Editor 里还没打开 Notebook：请打开或新建一个 .ipynb 文件（File → New File… → Jupyter Notebook）]
 PASS [ms] 在“我的 Notebook”列表页提示先启动实例并点「查看」  [请先启动 Notebook 实例，再点「查看 / View」打开 Code Editor]
 
@@ -228,10 +682,157 @@ PASS [ms-auto] 从单元格文字读回检测结果：显卡型号、显存、CP
 === ModelScope DSW（阿里云 PAI-DSW JupyterLab） ===
 PASS [dsw] 识别为「ModelScope DSW」，顶层 JupyterLab  [已连接：ModelScope DSW（jupyterlab，JupyterLab 模型，主页面）]
 PASS [dsw] 内核正忙时另开临时内核静默检测：显示 CPU 核数和内存，不新建单元格  [硬件：仅 CPU · 8 核 CPU，15.6 GB 内存 · 已检测]
-PASS [dsw] 临时内核检测完已关掉，用户的内核还在跑  [[{"id": "181904ee-eb8b-48b5-8ce7-8e7519d3e1f1", "name": "python3", "last_activity": "2026-11-12T17:05:56.248991Z", "execution_state": "busy", "connections": 1}]]
+PASS [dsw] 临时内核检测完已关掉，用户的内核还在跑  [[{"id": "6ddebb78-9167-49e8-a14b-9255730e547d", "name": "python3", "last_activity": "2026-11-12T17:45:32.544864Z", "execution_state": "busy", "connections": 1}]]
 PASS [dsw] 页面上看不到检测代码的输出
 PASS [dsw] 系统提示带平台名、清华镜像，并要求按实际配置写代码  [U，只有 CPU：用 device="cpu"，训练时调小数据量 / batch / epoch，不要安装 CUDA 版的包。环境里还没有 torch，需要时先 %pip install torch（CPU 版即可）。CPU 8 核、内存 15.6 GB：DataLoader 的 num_workers 不超过 CPU 核数，数据量、batch size 要放得进内存。所有代码都要按上面这份实际配置来写：模型规模、精度（显存紧张时用半精度/混合精度）、batch size、num_workers、数据量都按这份配置选，不要写超出显存或内存的代码；在代码注释里用一句话说明按什么配置选的这些参数。]
 PASS [dsw] 确认后插入并运行，输出 NBAC_OK 42 True  [已插入新单元格并开始运行（jupyterlab-model(listener-hook)；运行：jupyterlab-model）]
+PASS [dsw] 插入并运行后自动发现运行出错，显示醒目的「根据运行结果继续」  [已插入新单元格并开始运行（jupyterlab-model(listener-hook)；运行：jupyterlab-model）。运行出错了，可以点「根据运行结果继续」 | act act-continue danger strong]
+PASS [dsw] 点「根据运行结果继续」：读到报错和报错前的正常输出，让模型给修好的单元格  [最近的报错输出：
+```
+NBAC_BEFORE_BOOM
+
+---------------------------------------------------------------------------
+ValueError                                Traceback (most recent call last)
+Cell In[4], line 2
+      1 print("NBAC_BEFORE_BOOM")
+----> 2 raise ValueError("NBAC_BOOM")
+
+ValueError: NBAC_BOOM
+``` | 阿里云百炼 · deepseek-v4.1-flash · 已附带上下文 · 已读取报错
+下面是代码：
+Python · 可直接修改后再插入
+复制
+插入到新单元格
+插入并运行]
+PASS [dsw] 修好的单元格运行成功后也显示「根据运行结果继续」（普通按钮）  [已插入新单元格并开始运行（jupyterlab-model(listener-hook)；运行：jupyterlab-model）。运行完成，可以点「根据运行结果继续」让我看输出、给下一步 | act act-continue primary]
+PASS [dsw] 正常运行完：读到正常输出 NBAC_FIXED 1.0，模型给下一步单元格  [下面是刚运行完的单元格和它的运行输出。请根据输出判断这一步有没有成功，然后输出下一步需要运行的完整单元格（如果输出里有问题，就输出修好后的完整单元格）。
+
+当前单元格代码：
+```python
+x = 1 / 1  # 除数改成非 0
+print("NBAC_FIXED", x)
+
+```
+
+运行输出：
+```
+NBAC_FIXED 1.0
+```]
+PASS [dsw] 终端模式：%%bash 单元格运行出错也能自动发现  [已插入 %%bash 单元格并开始运行（jupyterlab-model(listener-hook)；运行：jupyterlab-model）。运行出错了，可以点「根据运行结果继续」]
+PASS [dsw] 终端模式：读到 bash 的报错和输出，按终端格式给命令（「在 Notebook 里运行」）  [           Traceback (most recent call last)
+Cell In[6], line 1
+----> 1 get_ipython().run_cell_magic('bash', '', 'echo "NBAC_BASH_OUT"\necho "NBAC_BASH_ERR" >&2\nexit 3\n')
+
+CalledProcessError: Command 'b'echo "NBAC_BASH_OUT"\necho "NBAC_BASH_ERR" >&2\nexit 3\n'' returned non-zero exit status 3.
+```]
+PASS [dsw] 终端模式：%%bash 运行成功后也能继续  [已插入 %%bash 单元格并开始运行（jupyterlab-model(listener-hook)；运行：jupyterlab-model）。运行完成，可以点「根据运行结果继续」让我看输出、给下一步]
+PASS [dsw] 终端模式：根据运行结果给下一步命令  [下面是刚运行完的单元格和它的运行输出。请根据输出判断这一步有没有成功，然后用一个 ```bash 代码块给出下一步需要运行的命令。
+
+当前单元格代码：
+```bash
+%%bash
+# 测试用命令
+echo "NBAC_BASH $((6 * 7))"
+
+```
+
+运行输出：
+```
+NBAC_BASH 42
+```]
+PASS [dsw] + →「修复当前报错」读取当前单元格的运行输出（不只是报错），按终端格式给下一步  [下面是刚运行完的单元格和它的运行输出。请根据输出判断这一步有没有成功，然后用一个 ```bash 代码块给出下一步需要运行的命令。
+
+当前单元格代码：
+```bash
+%%bash
+# 测试用命令
+echo "NBAC_BASH $((6 * 7))"
+
+```
+
+运行输出：
+```
+NBAC_BASH 42
+```]
+PASS [dsw] 聊天模式 + 是「添加图片或文件」（Notebook/终端模式还是原来的菜单）；文本文件内容进消息，图片按多模态发送  [{"vis": true, "nb": true, "img": 1, "meta": "阿里云百炼 · deepseek-v4.1-flash · 已附带上下文 · 1 张图片 · 聊天模式"}]
+
+=== ModelScope DSW WebIDE（VS Code 网页版，内嵌 frame） ===
+PASS [dsw-ide] 识别为「ModelScope DSW（vscode-notebook，内嵌 frame）」  [已连接：ModelScope DSW（vscode-notebook，内嵌 frame）]
+PASS [dsw-ide] 自动检测：通过同一网关的 Jupyter 服务开临时内核静默检测，显示 CPU 核数和内存，不插检测单元格  [硬件：仅 CPU · 8 核 CPU，15.6 GB 内存 · 已检测]
+PASS [dsw-ide] 页面上的 AMD EPYC（CPU）不再被当成 AMD 显卡  [硬件：仅 CPU · 8 核 CPU，15.6 GB 内存 · 已检测]
+PASS [dsw-ide] 临时内核检测完已关掉  [[{"id": "6ddebb78-9167-49e8-a14b-9255730e547d", "name": "python3", "last_activity": "2026-11-12T17:45:41.146855Z", "execution_state": "idle", "connections": 0}]]
+PASS [dsw-ide] 系统提示按 ModelScope DSW + 检测到的配置写（不是 AMD ROCm）  [CPU 版即可）。CPU 8 核、内存 15.6 GB：DataLoader 的 num_workers 不超过 CPU 核数，数据量、batch size 要放得进内存。所有代码都要按上面这份实际配置来写：模型规模、精度（显存紧张时用半精度/混合精度）、batch size、num_workers、数据量都按这份配置选，不要写超出显存或内存的代码；在代码注释里用一句话说明按什么配置选的这些参数。]
+PASS [dsw-ide] 插入并运行后自动发现运行出错，显示醒目的「根据运行结果继续」  [已插入新单元格并开始运行（cell-toolbar+monaco-paste；运行：execute-button）。运行出错了（输出在单独的安全框里读不到，点下面的按钮会先自动读取报错），可以点「根据运行结果继续」 | act act-continue danger strong]
+PASS [dsw-ide] 点「根据运行结果继续」：读到报错，让模型给修好的单元格  [请修复下面这个单元格的报错，输出修好后的完整单元格。
+
+当前单元格代码：
+```python
+print("NBAC_BEFORE_BOOM")
+raise ValueError("NBAC_BOOM")
+
+```
+
+最近的报错输出：
+```
+Traceback (most recent call last):
+  File "<cell>", line 2, in <module>
+ValueError: NBAC_BOOM
+``` | 阿里云百炼 · deepseek-v4.1-flash · 已附带上下文 · 已读取报错
+下面是代码：
+Python · 可直接修改后再插入
+复制
+插入到新单元格
+插入并运行]
+PASS [dsw-ide] 输出读不到：插入只读的「读取报错」单元格，从内核写回的 NBAC_ERR 读到报错，不改用户代码  [[{"i": 0, "focused": false, "code": "x = 41\nprint(x + 1)"}, {"i": 1, "focused": false, "code": "y = 1/0"}, {"i": 2, "focused": false, "code": "print(\"NBAC_BEFORE_BOOM\")\nraise ValueError(\"NBAC_BOOM\")\n"}, {"i": 3, "focused": true, "code": "# 上一次运行的报错（Notebook AI Copilot 已读取），可以删除这个单元格\n# NBAC_E]
+PASS [dsw-ide] 修好的单元格运行成功后也显示「根据运行结果继续」（普通按钮）  [已插入新单元格并开始运行（cell-toolbar+monaco-paste；运行：execute-button）。运行完成，可以点「根据运行结果继续」让我看输出、给下一步 | act act-continue primary]
+PASS [dsw-ide] 正常运行完：输出读不到时如实说明，模型给下一步单元格  [下面是刚运行完的单元格和它的运行输出。请根据输出判断这一步有没有成功，然后输出下一步需要运行的完整单元格（如果输出里有问题，就输出修好后的完整单元格）。
+
+当前单元格代码：
+```python
+x = 1 / 1  # 除数改成非 0
+print("NBAC_FIXED", x)
+
+```
+
+运行输出：
+```
+（这一步运行完成，没有报错；这个平台的输出显示在单独的安全框里，读不到具体输出）
+```]
+PASS [dsw-ide] 终端模式：%%bash 单元格运行出错也能自动发现  [已插入 %%bash 单元格并开始运行（cell-toolbar+monaco-paste；运行：execute-button）。运行出错了（输出在单独的安全框里读不到，点下面的按钮会先自动读取报错），可以点「根据运行结果继续」]
+PASS [dsw-ide] 终端模式：读到 bash 的报错（读取报错单元格），按终端格式给命令（「在 Notebook 里运行」）  [请修复下面这个单元格的报错：先用一两句话说原因，再用一个 ```bash 代码块给出修复用的完整命令。
+
+当前单元格代码：
+```python
+echo "NBAC_BASH_OUT"
+echo "NBAC_BASH_ERR" >&2
+exit 3
+
+```
+
+最近的报错输出：
+```
+Traceback (most recent call last):
+  File "<cell>", line 2, in <module>
+CalledProcessError: Command 'b'echo...'' returned non-zero exit status 3.
+```]
+PASS [dsw-ide] 终端模式：%%bash 运行成功后也能继续  [已插入 %%bash 单元格并开始运行（cell-toolbar+monaco-paste；运行：execute-button）。运行完成，可以点「根据运行结果继续」让我看输出、给下一步]
+PASS [dsw-ide] 终端模式：根据运行结果给下一步命令  [下面是刚运行完的单元格和它的运行输出。请根据输出判断这一步有没有成功，然后用一个 ```bash 代码块给出下一步需要运行的命令。
+
+当前单元格代码：
+```bash
+%%bash
+# 测试用命令
+echo "NBAC_BASH $((6 * 7))"
+
+```
+
+运行输出：
+```
+（这一步运行完成，没有报错；这个平台的输出显示在单独的安全框里，读不到具体输出）
+```]
+PASS [dsw-ide] 聊天模式 + 是「添加图片或文件」（Notebook/终端模式还是原来的菜单）；文本文件内容进消息，图片按多模态发送  [{"vis": true, "nb": true, "img": 1, "meta": "阿里云百炼 · deepseek-v4.1-flash · 已附带上下文 · 1 张图片 · 聊天模式"}]
+PASS [dsw-ide] + →「检测硬件」也走临时内核（不插单元格）  [内置 · 检测硬件
+已检测硬件（用临时内核在后台运行，没有新建单元格）：仅 CPU · 8 核 CPU，15.6 GB 内存 · 已检测。之后生成的代码会按这个配置来写。]
 
 === 安睿云 JupyterLab（/instances/<id>/lab，顶层页面） ===
 PASS [anrui] /instances/<id>/lab 启动器页面：提示打开或新建 Notebook  [安睿云 JupyterLab 已打开，但当前没有打开 Notebook：请在左侧文件浏览器里双击一个 .ipynb，或在启动器里新建 Notebook（Python 3）]
@@ -247,6 +848,75 @@ PASS [anrui] 插入新单元格（直接写 JupyterLab 模型）  [已插入到�
 PASS [anrui] 运行前要确认
 PASS [anrui] 确认后插入并运行，输出 NBAC_OK 42 True  [已插入新单元格并开始运行（jupyterlab-model(listener-hook)；运行：jupyterlab-model）]
 PASS [anrui] 修复报错后运行成功（NBAC_FIXED 1.0）  [已插入新单元格并开始运行（jupyterlab-model(listener-hook)；运行：jupyterlab-model）]
+PASS [anrui] 插入并运行后自动发现运行出错，显示醒目的「根据运行结果继续」  [已插入新单元格并开始运行（jupyterlab-model(listener-hook)；运行：jupyterlab-model）。运行出错了，可以点「根据运行结果继续」 | act act-continue danger strong]
+PASS [anrui] 点「根据运行结果继续」：读到报错和报错前的正常输出，让模型给修好的单元格  [最近的报错输出：
+```
+NBAC_BEFORE_BOOM
+
+---------------------------------------------------------------------------
+ValueError                                Traceback (most recent call last)
+Cell In[5], line 2
+      1 print("NBAC_BEFORE_BOOM")
+----> 2 raise ValueError("NBAC_BOOM")
+
+ValueError: NBAC_BOOM
+``` | 阿里云百炼 · deepseek-v4.1-flash · 已附带上下文 · 已读取报错
+下面是代码：
+Python · 可直接修改后再插入
+复制
+插入到新单元格
+插入并运行]
+PASS [anrui] 修好的单元格运行成功后也显示「根据运行结果继续」（普通按钮）  [已插入新单元格并开始运行（jupyterlab-model(listener-hook)；运行：jupyterlab-model）。运行完成，可以点「根据运行结果继续」让我看输出、给下一步 | act act-continue primary]
+PASS [anrui] 正常运行完：读到正常输出 NBAC_FIXED 1.0，模型给下一步单元格  [下面是刚运行完的单元格和它的运行输出。请根据输出判断这一步有没有成功，然后输出下一步需要运行的完整单元格（如果输出里有问题，就输出修好后的完整单元格）。
+
+当前单元格代码：
+```python
+x = 1 / 1  # 除数改成非 0
+print("NBAC_FIXED", x)
+
+```
+
+运行输出：
+```
+NBAC_FIXED 1.0
+```]
+PASS [anrui] 终端模式：%%bash 单元格运行出错也能自动发现  [已插入 %%bash 单元格并开始运行（jupyterlab-model(listener-hook)；运行：jupyterlab-model）。运行出错了，可以点「根据运行结果继续」]
+PASS [anrui] 终端模式：读到 bash 的报错和输出，按终端格式给命令（「在 Notebook 里运行」）  [           Traceback (most recent call last)
+Cell In[7], line 1
+----> 1 get_ipython().run_cell_magic('bash', '', 'echo "NBAC_BASH_OUT"\necho "NBAC_BASH_ERR" >&2\nexit 3\n')
+
+CalledProcessError: Command 'b'echo "NBAC_BASH_OUT"\necho "NBAC_BASH_ERR" >&2\nexit 3\n'' returned non-zero exit status 3.
+```]
+PASS [anrui] 终端模式：%%bash 运行成功后也能继续  [已插入 %%bash 单元格并开始运行（jupyterlab-model(listener-hook)；运行：jupyterlab-model）。运行完成，可以点「根据运行结果继续」让我看输出、给下一步]
+PASS [anrui] 终端模式：根据运行结果给下一步命令  [下面是刚运行完的单元格和它的运行输出。请根据输出判断这一步有没有成功，然后用一个 ```bash 代码块给出下一步需要运行的命令。
+
+当前单元格代码：
+```bash
+%%bash
+# 测试用命令
+echo "NBAC_BASH $((6 * 7))"
+
+```
+
+运行输出：
+```
+NBAC_BASH 42
+```]
+PASS [anrui] + →「修复当前报错」读取当前单元格的运行输出（不只是报错），按终端格式给下一步  [下面是刚运行完的单元格和它的运行输出。请根据输出判断这一步有没有成功，然后用一个 ```bash 代码块给出下一步需要运行的命令。
+
+当前单元格代码：
+```bash
+%%bash
+# 测试用命令
+echo "NBAC_BASH $((6 * 7))"
+
+```
+
+运行输出：
+```
+NBAC_BASH 42
+```]
+PASS [anrui] 聊天模式 + 是「添加图片或文件」（Notebook/终端模式还是原来的菜单）；文本文件内容进消息，图片按多模态发送  [{"vis": true, "nb": true, "img": 1, "meta": "阿里云百炼 · deepseek-v4.1-flash · 已附带上下文 · 1 张图片 · 聊天模式"}]
 PASS [anrui] 检测硬件：在内核里静默检测、不新建单元格（本机没有 torch：显卡沿用页面的 AMD，CPU 核数和内存用检测结果）  [内置 · 检测硬件
 已检测硬件（在后台运行，没有新建单元格）：仅 CPU · 8 核 CPU，15.6 GB 内存 · 已检测。之后生成的代码会按这个配置来写。 | 硬件：AMD GPU（ROCm） 48 GB 显存 · 8 核 CPU，15.6 GB 内存 · 页面提示]
 PASS [anrui] 重新检测后仍用保存的检测结果（CPU 核数、内存）  [硬件：AMD GPU（ROCm） 48 GB 显存 · 8 核 CPU，15.6 GB 内存 · 页面提示]
@@ -265,9 +935,9 @@ PASS [selfhosted] 刷新后脚本自动加载（document_start 的 early.js 也�
 PASS [selfhosted] 刷新后直接连上（不用再注入），走 JupyterLab 模型  [已连接：Jupyter（jupyterlab，JupyterLab 模型，主页面）]
 PASS [noperm] 没有权限：状态说明需要权限，并显示「在此网站启用助手」  [助手还没有访问这个网站的权限，所以读不到 Notebook | 点下面的按钮，Chrome 会询问是否允许助手访问 http://noperm.test（只申请这一个网站）]
 PASS [noperm] 状态不再误报“不是 Notebook 页面”  [助手还没有访问这个网站的权限，所以读不到 Notebook]
-PASS [noperm] 诊断信息里有注入失败原因和权限信息  [{"at": "2026-11-12T17:06:30.066Z", "ok": false, "error": "Cannot access contents of url \"http://noperm.test:8903/instances/rgapi-one-click-test-0001/lab/tree/test.ipynb\". Extension manifest must req]
+PASS [noperm] 诊断信息里有注入失败原因和权限信息  [{"at": "2026-11-12T17:46:47.090Z", "ok": false, "error": "Cannot access contents of url \"http://noperm.test:8903/instances/rgapi-one-click-test-0001/lab/tree/test.ipynb\". Extension manifest must req]
 
 === 截图 ===
 PASS [demo] 截图用的运行也成功
 
-190/190 checks passed
+303/303 checks passed

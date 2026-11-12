@@ -21,6 +21,11 @@
    - ModelScope 夹具：运行时像真实 VS Code 一样把执行序号改成 `[*]`/`[N]`（运行路径和 0.1.3 相同，没有改）。
    - 自建 JupyterLab：`selfhosted.test`（测试版只给了主机权限、**不在内容脚本匹配列表里**）上打开同一个 JupyterLab，侧边栏用 `chrome.scripting` 注入后连上并能插入运行；模拟授权后（`enableSiteForTest`，跳过 Chrome 权限弹窗）登记动态内容脚本，刷新网页自动加载。`noperm.test`（没有任何权限）显示「在此网站启用助手」按钮，诊断信息里有注入失败原因。
 
+9. 0.1.14：
+   - 「根据运行结果继续」：每个平台夹具（JupyterLab dom/app、Kaggle、AI Studio、AI Studio Monaco、ModelScope Code Editor、DSW JupyterLab、DSW WebIDE、安睿云）都跑 `run_result_checks`：Notebook 模式运行会报错的代码 → 自动发现出错 → 继续 → 读到报错（和报错前的正常输出）→ 修复 → 运行成功 → 继续 → 读到正常输出给下一步；终端模式 `%%bash` 出错/成功同样流程；JupyterLab 类平台还测 + →「修复当前报错」读取选中单元格的输出。VS Code 夹具（`modelscope_workbench.html`）按 VS Code 的 ✓/✗ 状态图标表示成功/出错，并模拟「读取报错」单元格的 `# NBAC_ERR {…}` 写回。`autofix_checks`：「运行出错自动修复」只生成不运行。
+   - `test_conversations`：0.1.13 聊天记录迁移、新对话、抽屉排序/打开/重命名、删除一个（确认）、删除全部（确认）、上下文只用当前对话；聊天附件（文件选择、`.ipynb` 只取源码、大文件截断、×、粘贴/拖放图片、OpenAI `image_url` 和 Gemini `inlineData`、不支持图片的模型 `text-only-model` 的提示、不支持的文件类型）。每个平台还跑 `chat_attach_checks`。
+   - `test_dsw_webide`：`modelscope_server.py` 在 `dsw-gateway-cn-hangzhou.data.aliyun.test:8771/dsw-2367657/ide/` 出 DSW WebIDE 外层页面（顶栏写着 CPU 是 AMD EPYC），iframe 里是 VS Code 工作台夹具，`/dsw-2367657/api/*` 反向代理到 8904 的真实 JupyterLab。验证：识别为 DSW vscode-notebook、经临时内核静默检测出 CPU 核数和内存、不插单元格、临时内核已关闭、不误判 AMD 显卡。
+
 侧边栏在测试里以独立弹窗（`index.html?tabId=…`）打开，界面和真正的侧边栏是同一个页面。
 
 ```bash

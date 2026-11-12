@@ -121,10 +121,26 @@ function run(c) {
   if (kernel.getAttribute('aria-label') === '/usr/bin/python3') {
     text = "Running cells with 'Python 3.10.12' requires the ipykernel package.\nCreate a Python Environment with the required packages.";
   } else if (/1\s*\/\s*0/.test(code)) text = 'ZeroDivisionError                         Traceback (most recent call last)\nCell In[2], line 1\n----> 1 y = 1/0\n\nZeroDivisionError: division by zero';
+  else if (code.includes('_nbac_last_error()')) {
+    // 模拟内核：IPython 的 set_next_input(replace=True) 把「读取报错」单元格换成上一次的报错
+    const info = window.__lastError ? { ok: false, ename: window.__lastError.ename, evalue: window.__lastError.evalue, tb: window.__lastError.tb } : { ok: true };
+    setTimeout(() => c.ed.setValue('# 上一次运行的报错（Notebook AI Copilot 已读取），可以删除这个单元格\n# NBAC_ERR ' + JSON.stringify(info)), 400);
+    text = '';
+  }
+  else if (code.includes('NBAC_BOOM')) text = 'NBAC_BEFORE_BOOM\nValueError                                Traceback (most recent call last)\nCell In[5], line 2\n----> 2 raise ValueError("NBAC_BOOM")\n\nValueError: NBAC_BOOM';
+  else if (/^%%bash/.test(code) && code.includes('NBAC_BASH_ERR')) text = 'NBAC_BASH_OUT\nNBAC_BASH_ERR\nCalledProcessError                        Traceback (most recent call last)\nCalledProcessError: Command \'b\'echo...\'\' returned non-zero exit status 3.';
+  else if (/^%%bash/.test(code) && code.includes('NBAC_BASH')) text = 'NBAC_BASH 42';
+  else if (code.includes('NBAC_NEXT')) text = 'NBAC_NEXT 42';
   else if (code.includes('NBAC_FIXED')) text = 'NBAC_FIXED 1.0';
   else if (code.includes('NBAC_OK')) text = 'NBAC_OK 42 True';
   else if (/print\(x \+ 1\)/.test(code)) text = '42';
   else text = '';
+  const isErr = /Traceback/.test(text);
+  if (isErr) {
+    const last = text.trim().split('\n').pop();
+    const mm = last.match(/^(\w+): ?(.*)$/);
+    window.__lastError = { ename: mm ? mm[1] : 'Error', evalue: mm ? mm[2] : last, tb: 'Traceback (most recent call last):\n  File "<cell>", line 2, in <module>\n' + last };
+  }
   window.__fixtureOutputs.push({ index: cells.indexOf(c), text, code });
   // 像真实 VS Code 一样：执行序号先变成 [*]，跑完变成 [N]，状态栏出现成功图标和用时
   const lab = c.row.querySelector('.cell-execution-order > div');
@@ -135,7 +151,7 @@ function run(c) {
     const sb = c.row.querySelector('.cell-statusbar-container');
     let left = sb.querySelector('.cell-status-left');
     if (!left) { left = document.createElement('div'); left.className = 'cell-status-left'; sb.prepend(left); }
-    left.innerHTML = '<span class="codicon codicon-notebook-state-success"></span><span class="cell-status-item">0.1s</span>';
+    left.innerHTML = '<span class="codicon codicon-notebook-state-' + (isErr ? 'error' : 'success') + '"></span><span class="cell-status-item">0.1s</span>';
   }, 300);
   const out = c.row.querySelector('.output');
   if (Q.get('readable')) { out.textContent = text; return; }

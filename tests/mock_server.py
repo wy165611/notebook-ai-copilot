@@ -18,7 +18,7 @@ LAST, LOG = {}, []
 GEN_CODE = 'import platform\nprint("NBAC_OK", 6 * 7, platform.python_version() != "")\n'
 FIX_CODE = 'x = 1 / 1  # 除数改成非 0\nprint("NBAC_FIXED", x)\n'
 OPENAI_MODELS = ['deepseek-v4.1-flash', 'deepseek-v4.1-flash-1017', 'qwen3.8-max', 'kimi-k3', 'glm-5.3',
-                 'MiniMax/MiniMax-M3', 'old-model-403', 'no-think-model',
+                 'MiniMax/MiniMax-M3', 'old-model-403', 'no-think-model', 'text-only-model',
                  'paraformer-v2', 'qwen-tts-latest', 'text-embedding-v4', 'wanx2.1-t2i-turbo']
 GEMINI_MODELS = [('gemini-3.5-flash', ['generateContent']), ('gemini-3.6-flash', ['generateContent']),
                  ('gemini-3.8-flash', ['generateContent']), ('gemini-embedding-001', ['embedContent']),
@@ -30,13 +30,24 @@ CHAT_TEXT = ('这是聊天模式的解答：<b>NBAC_CHAT_ANSWER</b> 不应该被
              + '第二段说明，用 `pip` 安装即可。' + '很长的解释。' * 130 + 'NBAC_CHAT_END\n\n'
              + '```python\nprint("NBAC_CHAT_CODE")\n```\n最后一句。')
 
+BOOM_CODE = 'print("NBAC_BEFORE_BOOM")\nraise ValueError("NBAC_BOOM")\n'
+BASH_ERR = 'echo "NBAC_BASH_OUT"\necho "NBAC_BASH_ERR" >&2\nexit 3\n'
+NEXT_CODE = 'print("NBAC_NEXT", 2 * 21)\n'
+
 def answer(user_text, system=''):
     # 终端模式 / 聊天模式按系统提示区分；其他情况和以前一样返回 Python 单元格
     if '终端（bash）助手' in system:
-        return '下面是命令：\n```bash\n' + BASH_CODE + '```'
+        return '下面是命令：\n```bash\n' + (BASH_ERR if '会报错的命令' in user_text else BASH_CODE) + '```'
     if '问答助手' in system:
         return CHAT_TEXT
-    code = FIX_CODE if '请修复下面这个单元格的报错' in user_text else GEN_CODE
+    if '写一段会报错的代码' in user_text:
+        code = BOOM_CODE
+    elif '请修复下面这个单元格的报错' in user_text:
+        code = FIX_CODE
+    elif '请根据输出判断这一步有没有成功' in user_text:
+        code = NEXT_CODE
+    else:
+        code = GEN_CODE
     return '下面是代码：\n```python\n' + code + '```'
 
 class H(BaseHTTPRequestHandler):
@@ -88,8 +99,9 @@ class H(BaseHTTPRequestHandler):
         if ':generateContent' in self.path:
             if self.headers.get('x-goog-api-key') != KEY:
                 return self.send(400, {'error': {'message': 'API key not valid'}})
-            user = ''.join(p.get('text', '') for c in body.get('contents', [])[-1:] for p in c.get('parts', []))
-            rec = {'format': 'gemini', 'path': self.path, 'user': user, 'body': body,
+            parts = [p for c in body.get('contents', [])[-1:] for p in c.get('parts', [])]
+            user = ''.join(p.get('text', '') for p in parts)
+            rec = {'format': 'gemini', 'path': self.path, 'user': user, 'body': body, 'images': sum(1 for p in parts if 'inlineData' in p or 'inline_data' in p),
                    'system': body.get('systemInstruction', {}).get('parts', [{}])[0].get('text', '')}
             LAST.clear(); LAST.update(rec); LOG.append(rec)
             return self.send(200, {'candidates': [{'content': {'role': 'model', 'parts': [
@@ -98,13 +110,21 @@ class H(BaseHTTPRequestHandler):
             if not self.bearer_ok():
                 return self.send(401, {'error': {'message': 'Incorrect API key'}})
             msgs = body.get('messages', [])
-            user = msgs[-1]['content'] if msgs else ''
+            content = msgs[-1]['content'] if msgs else ''
+            images = 0
+            if isinstance(content, list):  # 多模态：[{type: text}, {type: image_url}]
+                images = sum(1 for p in content if p.get('type') == 'image_url')
+                user = ''.join(p.get('text', '') for p in content if p.get('type') == 'text')
+            else:
+                user = content
             model = body.get('model', '')
-            rec = {'format': 'openai', 'path': self.path, 'model': model, 'user': user, 'body': body,
+            rec = {'format': 'openai', 'path': self.path, 'model': model, 'user': user, 'body': body, 'images': images,
                    'system': next((m['content'] for m in msgs if m['role'] == 'system'), '')}
             LAST.clear(); LAST.update(rec); LOG.append(rec)
             if '/' in model:
                 return self.send(400, {'error': {'code': 'Model.AccessDenied', 'message': 'Model not activated: please activate the model in the console first'}})
+            if model == 'text-only-model' and images:
+                return self.send(400, {'error': {'code': 'InvalidParameter', 'message': 'The model does not support image input: image_url is only supported by multimodal models'}})
             if model == 'old-model-403':
                 return self.send(403, {'error': {'message': 'Access denied'}})
             if model == 'no-think-model' and any(k in body for k in THINK_KEYS):
