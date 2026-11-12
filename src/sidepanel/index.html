@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Notebook AI 助手</title>
+  <link rel="stylesheet" href="panel.css" />
+</head>
+<body>
+  <header class="top">
+    <div class="title">Notebook AI 助手</div>
+    <div class="top-actions">
+      <button class="icon" id="newChat" title="新对话">
+        <svg viewBox="0 0 24 24"><path d="M19 13H5v-2h14v2z"/></svg>
+      </button>
+      <button class="icon" id="openOptions" title="设置（API Key / 服务商）">
+        <svg viewBox="0 0 24 24"><path d="M12 8a2 2 0 1 0 0-4 2 2 0 0 0 0 4zm0 2a2 2 0 1 0 0 4 2 2 0 0 0 0-4zm0 6a2 2 0 1 0 0 4 2 2 0 0 0 0-4z"/></svg>
+      </button>
+      <button class="icon" id="closePanel" title="关闭">
+        <svg viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <div id="status" class="status">正在检测当前页面的 Notebook…</div>
+
+  <main id="chat" class="chat">
+    <section id="welcome" class="welcome">
+      <h1 class="hello">你好</h1>
+      <p class="sub">今天需要我做些什么？</p>
+      <div class="chips">
+        <button class="chip" data-prompt="配置好训练 YOLO11m 的环境（安装 ultralytics，检查 GPU）">配置 YOLO11 训练环境</button>
+        <button class="chip" data-prompt="写好用 YOLO11m 训练 RDD2022 路面病害数据集的代码，data.yaml 路径放在开头变量里">写 YOLO11m 训练代码</button>
+        <button class="chip" data-action="fix">修复当前报错</button>
+      </div>
+    </section>
+    <div id="messages"></div>
+  </main>
+
+  <footer class="composer-wrap">
+    <div id="notice" class="notice" hidden></div>
+    <div class="composer" id="composer">
+      <div id="ctxChip" class="ctx-chip" hidden>
+        <svg viewBox="0 0 24 24"><path d="M16.5 6v11.5a4 4 0 0 1-8 0V5a2.5 2.5 0 0 1 5 0v10.5a1 1 0 0 1-2 0V6H10v9.5a2.5 2.5 0 0 0 5 0V5a4 4 0 0 0-8 0v12.5a5.5 5.5 0 0 0 11 0V6h-1.5z"/></svg>
+        已附带当前单元格和报错
+      </div>
+      <textarea id="prompt" rows="1" placeholder="需要我帮您构建什么？"></textarea>
+      <div class="composer-bar">
+        <div class="left">
+          <button class="icon" id="plusBtn" title="附加上下文 / 修复报错">
+            <svg viewBox="0 0 24 24"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
+          </button>
+          <button class="icon" id="thinkBtn" title="思考强度">
+            <svg viewBox="0 0 24 24"><path d="M3 17v2h6v-2H3zM3 5v2h10V5H3zm10 16v-2h8v-2h-8v-2h-2v6h2zM7 9v2H3v2h4v2h2V9H7zm14 4v-2H11v2h10zm-6-4h2V7h4V5h-4V3h-2v6z"/></svg>
+            <span id="thinkLabel" class="think-label"></span>
+          </button>
+        </div>
+        <div class="right">
+          <button class="model-btn" id="modelBtn" title="切换服务商和模型"><span id="modelLabel">模型</span>
+            <svg viewBox="0 0 24 24"><path d="M7 10l5 5 5-5z"/></svg></button>
+          <button class="send" id="send" title="发送（Enter）">
+            <svg viewBox="0 0 24 24"><path d="M4 12l1.41 1.41L11 7.83V20h2V7.83l5.58 5.59L20 12l-8-8-8 8z"/></svg>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 弹出菜单 -->
+    <div id="plusMenu" class="menu" hidden>
+      <label class="menu-item"><input type="checkbox" id="includeContext" /> 附带当前单元格代码和最近的报错</label>
+      <button class="menu-item" id="fixError">修复当前报错</button>
+      <button class="menu-item" id="refresh">重新检测 Notebook</button>
+    </div>
+    <div id="thinkMenu" class="menu" hidden>
+      <div class="menu-title">思考强度</div>
+      <div id="thinkOptions"></div>
+      <div class="menu-hint" id="thinkHint"></div>
+    </div>
+    <div id="modelMenu" class="menu model-menu" hidden>
+      <div class="menu-title">服务商</div>
+      <select id="providerSelect"></select>
+      <div class="menu-title row-between">模型
+        <button class="link" id="refreshModels" title="用你的 Key 重新拉取模型列表">刷新列表</button>
+      </div>
+      <input id="modelInput" list="modelList" placeholder="输入或选择模型 ID" />
+      <datalist id="modelList"></datalist>
+      <div id="modelListBox" class="model-list"></div>
+      <div class="menu-hint" id="modelHint"></div>
+    </div>
+  </footer>
+
+  <script type="module" src="panel.js"></script>
+</body>
+</html>

@@ -1,0 +1,81 @@
+
+=== 设置页 ===
+PASS [options] 默认服务商是阿里云百炼
+PASS [options] 百炼默认地址/模型
+PASS [options] DeepSeek 官方默认 https://api.deepseek.com + deepseek-flash
+PASS [options] Gemini 默认 gemini-3.5-flash
+PASS [options] 多个服务商的 Key 分别存在 storage.local
+PASS [options] storage.sync 为空（不同步 Key）
+PASS [options] 清除所有 Key
+
+=== 服务商 / 模型列表 / 思考强度 ===
+PASS [model] 首次安装默认服务商=阿里云百炼，模型=deepseek-v4.1-flash  [deepseek-v4.1-flash]
+PASS [model] 侧边栏用 Key 拉取 /models 列表  [共 8 个对话模型（已过滤语音/向量/图像等）。带 “/” 的是第三方模型，可能需要先在控制台开通。]
+PASS [model] 过滤掉语音/向量/图像模型  [MiniMax/MiniMax-M3,deepseek-v4.1-flash,deepseek-v4.1-flash-1017,glm-5.3,kimi-k3,no-think-model,old-model-403,qwen3.8-max,deepseek-v4-pro,qwen4-max-preview]
+PASS [model] 切换模型后按钮显示新模型
+PASS [model] 模型列表已缓存
+PASS [think] qwen 支持 关闭/低/中/高/最高  [{'default': True, 'off': True, 'low': True, 'medium': True, 'high': True, 'max': True}]
+PASS [think] 百炼 qwen “高” → enable_thinking=true, thinking_budget=16384  [{"enable_thinking": true, "thinking_budget": 16384}]
+PASS [think] 百炼 deepseek-v4.1-flash 隐藏“中”档  [{'default': True, 'off': True, 'low': True, 'medium': False, 'high': True, 'max': True}]
+PASS [think] 百炼 deepseek “最高” → enable_thinking=true, reasoning_effort=max
+PASS [think] 百炼 “关闭” → enable_thinking=false
+PASS [think] kimi-k3 只能 关闭/高（不支持预算）  [{'default': True, 'off': True, 'low': False, 'medium': False, 'high': True, 'max': False}]
+PASS [think] 模型拒绝思考参数时自动去掉参数重试
+PASS [think] 重试后显示提示  [这个模型不接受所选的思考强度参数，已改用默认方式重新生成。]
+PASS [model] 带“/”第三方模型 400 未开通 → 明确提示  [模型 MiniMax/MiniMax-M3 在你的账号下还没有开通（400）：Model not activated: please activate the model in t]
+PASS [model] 403 → 明确提示没有权限  [没有权限使用模型 old-model-403（403）：Access denied。这个模型可能已下线，或你的账号无权调用，请换一个模型。]
+PASS [deepseek] 切换服务商后拉取 DeepSeek 模型列表  [deepseek-flash,deepseek-v4-pro]
+PASS [deepseek] “关闭” → thinking.type=disabled
+PASS [deepseek] “低” → thinking.type=enabled + reasoning_effort=low
+PASS [gemini] models.list 只保留 generateContent 模型  [gemini-3.5-flash,gemini-3.6-flash,gemini-3.8-flash,gemini-3.5-flash-lite]
+PASS [gemini] 3.5 Flash 没有“最高”档  [{'default': True, 'off': True, 'low': True, 'medium': True, 'high': True, 'max': False}]
+PASS [gemini] “低” → generationConfig.thinkingConfig.thinkingLevel=low，模型 gemini-3.5-flash
+PASS [memory] 重新打开面板后记住服务商/模型/思考强度  [{'active': 'gemini', 'thinking': 'low'}]
+
+=== JupyterLab (dom) on :8899 ===
+PASS [dom] 检测到 Notebook  [已连接：Jupyter（jupyterlab）]
+PASS [dom] 百炼默认模型生成代码并显示在对话里  [阿里云百炼 · deepseek-v4.1-flash · 已附带上下文]
+PASS [dom] 请求发到百炼兼容接口，模型 deepseek-v4.1-flash
+PASS [dom] 读取当前单元格代码并发给模型
+PASS [dom] 读取最近的报错输出并发给模型
+PASS [dom] 思考强度“默认”时不发送思考参数
+PASS [dom] 插入到新单元格  [已插入到新单元格（toolbar-button+cm6），检查无误后在 Notebook 里运行]
+PASS [dom] 新单元格内容就是生成的代码  [import platform
+print("NBAC_OK", 6 * 7, platform.python_vers]
+PASS [dom] 只插入时没有自动运行
+PASS [dom] 点“插入并运行”后先出现确认框
+PASS [dom] 确认前什么都没插入/运行
+PASS [dom] 确认后插入并运行，看到输出 “NBAC_OK 42 True”  [已插入新单元格并开始运行（toolbar-button+cm6）]
+PASS [dom] “修复报错”把代码和报错发给模型
+PASS [dom] “修复报错”返回修好的单元格
+PASS [dom] 修复后的单元格运行成功（输出 NBAC_FIXED 1.0）  [已插入新单元格并开始运行（toolbar-button+cm6）]
+PASS [dom] 没有工具栏时用键盘快捷键插入并运行  [已插入新单元格并开始运行（keyboard+cm6）]
+
+=== JupyterLab (app) on :8900 ===
+PASS [app] 检测到 Notebook  [已连接：Jupyter（jupyterlab，JupyterLab API）]
+PASS [app] 百炼默认模型生成代码并显示在对话里  [阿里云百炼 · deepseek-v4.1-flash · 已附带上下文]
+PASS [app] 请求发到百炼兼容接口，模型 deepseek-v4.1-flash
+PASS [app] 读取当前单元格代码并发给模型
+PASS [app] 读取最近的报错输出并发给模型
+PASS [app] 思考强度“默认”时不发送思考参数
+PASS [app] 插入到新单元格  [已插入到新单元格（jupyterlab-commands），检查无误后在 Notebook 里运行]
+PASS [app] 新单元格内容就是生成的代码  [import platform
+print("NBAC_OK", 6 * 7, platform.python_vers]
+PASS [app] 只插入时没有自动运行
+PASS [app] 点“插入并运行”后先出现确认框
+PASS [app] 确认前什么都没插入/运行
+PASS [app] 确认后插入并运行，看到输出 “NBAC_OK 42 True”  [已插入新单元格并开始运行（jupyterlab-commands）]
+PASS [app] “修复报错”把代码和报错发给模型
+PASS [app] “修复报错”返回修好的单元格
+PASS [app] 修复后的单元格运行成功（输出 NBAC_FIXED 1.0）  [已插入新单元格并开始运行（jupyterlab-commands）]
+
+=== Kaggle 近似夹具（APPROXIMATE） ===
+PASS [kaggle] 检测到 Kaggle 适配器  [已连接：Kaggle（kaggle-dom）]
+PASS [kaggle] 读取单元格代码和报错
+PASS [kaggle] “+ Code” 插入新单元格并写入代码  [已插入新单元格并开始运行（button+input-events）]
+PASS [kaggle] 运行新单元格（夹具里的假运行）
+
+=== 截图 ===
+PASS [demo] 截图用的运行也成功
+
+65/65 checks passed

@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <title>Notebook AI 助手 · 设置</title>
+  <link rel="stylesheet" href="../sidepanel/panel.css" />
+  <style>
+    body { display: block; max-width: 680px; margin: 24px auto; padding: 0 16px; }
+    h2 { font-weight: 500; }
+    .card { border: 1px solid var(--line); border-radius: 16px; padding: 14px 16px; margin: 14px 0; }
+    .card h3 { margin: 0 0 6px; font-size: 15px; font-weight: 500; display: flex; justify-content: space-between; }
+    label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 4px; }
+    input, select { width: 100%; border: 1px solid var(--line); border-radius: 8px; padding: 8px; font: 13px var(--font); outline: none; }
+    input:focus, select:focus { border-color: var(--blue); }
+    .hint { font-size: 12px; color: var(--muted); margin: 6px 0 0; }
+    .btns { display: flex; gap: 8px; margin-top: 16px; }
+    .btn { border: 1px solid var(--line); background: #fff; border-radius: 999px; padding: 8px 18px; }
+    .btn.primary { background: var(--blue); border-color: var(--blue); color: #fff; }
+    #message { margin-top: 10px; font-size: 13px; } #message.err { color: #b3261e; }
+    .tag { font-size: 11px; color: var(--blue); background: var(--blue-soft); border-radius: 999px; padding: 2px 8px; font-weight: 400; }
+  </style>
+</head>
+<body>
+  <h2>Notebook AI 助手 · 设置</h2>
+  <p class="hint">每个服务商的 API Key 都只保存在本机 Chrome 的 <code>chrome.storage.local</code>，不会同步、不会写进日志，只发给对应的接口。服务商、模型和思考强度可以在侧边栏底部直接切换。</p>
+
+  <label for="active">默认服务商</label>
+  <select id="active"></select>
+
+  <div id="cards"></div>
+
+  <label for="temperature">温度（0–1，越低越稳定；开启思考时部分模型会忽略）</label>
+  <input id="temperature" />
+
+  <div class="btns">
+    <button class="btn primary" id="save">保存</button>
+    <button class="btn" id="clearKeys">清除所有 Key</button>
+  </div>
+  <div id="message"></div>
+  <script type="module" src="options.js"></script>
+</body>
+</html>

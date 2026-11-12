@@ -1,2 +1,103 @@
-# notebook-ai-copilot
-Chrome extension: call Gemini (your own API key) to write code into Baidu AI Studio, ModelScope and Kaggle notebooks, with confirm-before-run
+# Notebook AI Copilot
+
+一个 Chrome 扩展（Manifest V3）：在 **飞桨 AI Studio**、**ModelScope（魔搭）**、**Kaggle** 的网页 Notebook 里，用**你自己的 API Key** 调大模型写代码。默认用 **阿里云百炼 + DeepSeek-V4.1-Flash**，也支持 DeepSeek 官方、Google Gemini 和任意 OpenAI 兼容接口。
+
+> 生成的代码**先给你看**；你点“插入到新单元格”才会写进 Notebook；点“插入并运行”还要再**确认一次**才会运行。没有确认，什么都不会执行。
+
+![测试截图：JupyterLab + 侧边栏](docs/screenshot.png)
+
+## 功能
+
+- 对话式侧边栏（中文界面）：欢迎页带常用建议，例如“配置 YOLO11 训练环境”“写 YOLO11m 训练代码”“修复当前报错”。
+- 每段代码下面有 **复制 / 插入到新单元格 / 插入并运行**（运行前要确认），代码可以先在框里改。
+- 输入框左下角 **“+”**：开关“附带当前单元格代码和最近的报错”、修复当前报错、重新检测 Notebook。
+- **思考强度**（调节图标）：默认 / 关闭 / 低 / 中 / 高 / 最高，按模型换成真实参数，当前模型不支持的档位会变灰。
+- 输入框右下角 **模型切换**：选服务商，并用你的 Key 拉取模型列表（会缓存，可“刷新列表”），拉取失败时可以直接输入模型 ID。
+- 记住上次选的服务商、模型和思考强度。
+- 多个服务商的 Key 可以同时保存，在侧边栏里随时切换。
+- 系统提示要求：只输出一个可运行的 Python 单元格，用 `%pip`；国内平台（AI Studio / ModelScope）安装时加清华镜像 `-i https://pypi.tuna.tsinghua.edu.cn/simple`，Hugging Face 用 `hf-mirror.com`。
+- 纯 JS，无需构建；扩展从不 `eval` 模型输出，只把文本放进单元格。
+
+## 安装（自己用，免费，不用上架）
+
+1. 下载本仓库：点 GitHub 页面的 **Code → Download ZIP** 并解压（或 `git clone`）。
+2. Chrome 地址栏打开 `chrome://extensions`，打开右上角 **开发者模式**。
+3. 点 **加载已解压的扩展程序**，选中解压出来的文件夹（里面有 `manifest.json`）。
+4. 点工具栏上的扩展图标（可先点拼图图标把它固定）打开侧边栏，点右上角 **⋮** 打开设置，填 API Key 并保存。
+
+Chrome 偶尔会提示“停用开发者模式扩展”，点关闭即可。
+
+## 服务商和模型
+
+| 服务商 | 接口地址 | 默认模型 | 说明 |
+|---|---|---|---|
+| **阿里云百炼**（默认） | `https://dashscope.aliyuncs.com/compatible-mode/v1` | `deepseek-v4.1-flash` | 这个 ID 对应 DeepSeek-V4.1-Flash 的最新版 1017；文档里也列出了快照 `deepseek-v4.1-flash-1017`，可在模型列表里切换。同一个 Key 还能用 `qwen3.8-max`、`kimi-k3`、`glm-5.3` 等。带 “/” 的第三方模型要先在百炼控制台开通，否则会返回 400“未开通”；有些旧模型会返回 403，侧边栏会直接告诉你原因。 |
+| DeepSeek 官方 | `https://api.deepseek.com` | `deepseek-flash` | 官方文档说明 `deepseek-flash` 目前由 DeepSeek-V4.1-Flash-1017 提供。 |
+| Google Gemini | `https://generativelanguage.googleapis.com/v1beta` | `gemini-3.5-flash` | Google 已在 2026-10-08 把 3.5 Flash 标为弃用，请求会自动转到 `gemini-3.6-flash`；也可以选 `gemini-3.6-flash`、`gemini-3.8-flash`。国内网络通常无法直连。免费 Key：[Google AI Studio](https://aistudio.google.com/apikey)。 |
+| 自定义（OpenAI 兼容） | 自己填（到 `/v1` 为止） | 自己填 | 保存时 Chrome 会弹窗请求访问该网站的权限，请点允许。 |
+
+模型列表：OpenAI 兼容接口调用 `GET {Base URL}/models`，Gemini 调用 `models.list`。列表会去掉语音、向量、图像这类不能对话的模型。
+
+### 思考强度怎么映射
+
+| 档位 | DeepSeek 官方 | 百炼 deepseek-v4.x | 百炼 qwen | 百炼 kimi / glm | Gemini 3.x | 自定义 |
+|---|---|---|---|---|---|---|
+| 默认 | 不传参数 | 不传参数 | 不传参数 | 不传参数 | 不传参数 | 不传参数 |
+| 关闭 | `thinking:{type:"disabled"}` | `enable_thinking:false` | `enable_thinking:false` | `enable_thinking:false` | `thinkingLevel:"minimal"`（3.8 不支持） | — |
+| 低 | `thinking:{type:"enabled"}` + `reasoning_effort:"low"` | `enable_thinking:true` + `reasoning_effort:"low"` | `thinking_budget:1024` | — | `thinkingLevel:"low"` | `reasoning_effort:"low"` |
+| 中 | — | — | `thinking_budget:4096` | — | `"medium"` | `"medium"` |
+| 高 | `reasoning_effort:"high"` | `reasoning_effort:"high"` | `thinking_budget:16384` | `enable_thinking:true` | `"high"` | `"high"` |
+| 最高 | `reasoning_effort:"max"` | `reasoning_effort:"max"` | `enable_thinking:true`（不限预算） | — | — | — |
+
+“—”表示这个模型不支持该档位，侧边栏里会变灰。如果服务商拒绝了思考参数（返回 400），扩展会去掉参数自动重试一次，并在输入框上方提示。
+
+## 使用
+
+1. 打开平台的 Notebook，等内核启动、页面加载完。
+2. 打开侧边栏，顶部显示绿色的“已连接：xxx”就行（没连上就点 **+ → 重新检测 Notebook**）。
+3. 在底部输入需求，按回车发送（Shift+回车换行）→ 检查代码 → **插入到新单元格**，或 **插入并运行 → 确认运行**。
+4. 运行报错时：先点一下出错的单元格，再点 **+ → 修复当前报错**（或欢迎页的“修复当前报错”）。
+
+## 各平台说明
+
+| 平台 | 匹配的网址 | 适配方式 |
+|---|---|---|
+| 飞桨 AI Studio（BML Codelab，基于 JupyterLab） | `aistudio.baidu.com`、`*.aistudio.baidu.com` | JupyterLab 适配器；经典版 Notebook（`window.Jupyter`）走经典适配器 |
+| ModelScope Notebook（阿里云 PAI-DSW 的 JupyterLab） | `modelscope.cn`、`*.modelscope.cn`、`*.data.aliyun.com`（如 `dsw-gateway-cn-hangzhou.data.aliyun.com/dsw-xxxx/lab`） | JupyterLab 适配器 |
+| Kaggle（`www.kaggle.com/code/.../edit`） | `www.kaggle.com`、`*.kaggleusercontent.com` | 如果页面里有 JupyterLab（`.jp-Notebook`）就用 JupyterLab 适配器，否则用 Kaggle DOM 适配器 |
+
+内容脚本在所有 iframe 里都会运行（`all_frames`），所以 Notebook 嵌在 iframe 里也能找到。
+
+**JupyterLab 适配器**（三层兜底）：
+1. 页面暴露了 `window.jupyterapp` 时，直接用 JupyterLab 命令：`notebook:insert-cell-below`、`notebook:run-cell`，并写 `activeCell.model.sharedModel.setSource()`；
+2. 否则点 Notebook 工具栏里 `[data-command="notebook:insert-cell-below"]` / `[data-command="notebook:run-cell-and-select-next"]` 按钮，用 CodeMirror 6 的 `EditorView`（`.cm-content.cmView.view`）写代码；CodeMirror 5 用 `.CodeMirror.CodeMirror.setValue()`；
+3. 工具栏被平台改掉时，模拟快捷键 Esc → B 插入、Shift+Enter 运行。
+报错读取：`.jp-OutputArea-output[data-mime-type="application/vnd.jupyter.stderr"]`。
+
+**Kaggle DOM 适配器**（以下选择器是根据公开资料推测的，没能登录验证）：
+- 编辑器：`.cm-editor` / `.CodeMirror` / `.monaco-editor`；当前单元格 = 有焦点或最近获得焦点的编辑器；
+- 插入：单元格内“Add code cell below”按钮，或页面上的 **“+ Code”** 按钮，都没有时用 Esc → B；
+- 运行：单元格内 aria-label/title 含 “Run” 的按钮，否则 Shift+Enter；
+- 报错：含 `Traceback`/`Error` 的 `.output_error`、`[class*=stderr]`、`pre` 等。
+如果 Kaggle 改了页面导致插入失败，侧边栏会显示失败原因，代码可以点“复制”后手动粘贴。
+
+## 已知限制
+
+- 界面风格参考了常见的 Notebook AI 侧边栏，只是自己用；扩展里没有用任何其他公司的标志或名称。
+- 无法登录三个平台做实测：JupyterLab 适配器在真实 JupyterLab 4.6 上测过；AI Studio / ModelScope 基于 JupyterLab，但平台可能有定制；Kaggle 只在近似的 DOM 夹具上测过。
+- 插入位置是“当前选中单元格的下方”。
+- Gemini API 在中国大陆网络下通常无法直连。
+- 模型生成的代码可能有错，请一定先检查再运行，尤其是删除文件、下载大文件的命令。
+- 自己用不需要上架；上架 Chrome 应用商店需要一次性 5 美元开发者注册费。
+
+## 测试
+
+见 [tests/README.md](tests/README.md)：真实 JupyterLab + Playwright + 本地模拟模型服务的端到端测试。
+
+## 隐私
+
+见 [PRIVACY.md](PRIVACY.md)。API Key 只存在本机 `chrome.storage.local`。
+
+## 许可证
+
+MIT

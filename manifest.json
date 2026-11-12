@@ -1,0 +1,74 @@
+{
+  "manifest_version": 3,
+  "name": "Notebook AI Copilot",
+  "version": "0.1.0",
+  "description": "在飞桨 AI Studio、ModelScope、Kaggle 的 Notebook 中用你自己的 API Key（阿里云百炼 / DeepSeek / Gemini / OpenAI 兼容）生成代码，确认后再插入与运行。",
+  "default_locale": "zh_CN",
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_title": "Notebook AI Copilot",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png"
+    }
+  },
+  "background": {
+    "service_worker": "src/background.js"
+  },
+  "side_panel": {
+    "default_path": "src/sidepanel/index.html"
+  },
+  "options_page": "src/options/options.html",
+  "permissions": [
+    "sidePanel",
+    "storage"
+  ],
+  "host_permissions": [
+    "https://dashscope.aliyuncs.com/*",
+    "https://api.deepseek.com/*",
+    "https://generativelanguage.googleapis.com/*"
+  ],
+  "optional_host_permissions": [
+    "https://*/*",
+    "http://*/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://aistudio.baidu.com/*",
+        "https://*.aistudio.baidu.com/*",
+        "https://modelscope.cn/*",
+        "https://*.modelscope.cn/*",
+        "https://*.data.aliyun.com/*",
+        "https://www.kaggle.com/*",
+        "https://*.kaggleusercontent.com/*"
+      ],
+      "js": [
+        "src/content/page.js"
+      ],
+      "world": "MAIN",
+      "all_frames": true,
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://aistudio.baidu.com/*",
+        "https://*.aistudio.baidu.com/*",
+        "https://modelscope.cn/*",
+        "https://*.modelscope.cn/*",
+        "https://*.data.aliyun.com/*",
+        "https://www.kaggle.com/*",
+        "https://*.kaggleusercontent.com/*"
+      ],
+      "js": [
+        "src/content/bridge.js"
+      ],
+      "all_frames": true,
+      "run_at": "document_idle"
+    }
+  ]
+}
