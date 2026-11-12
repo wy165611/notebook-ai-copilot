@@ -96,10 +96,27 @@ assert.deepEqual(filterChatModels(['qwen3.8-max', 'paraformer-v2', 'qwen-tts', '
   assert.equal(calls.length, 5, '原来的 addEventListener 照常被调用');
 }
 
+// 安睿云：页面文字里没有显卡信息，但 JupyterLab 插件里有 @amd-oneclick/* 时识别为 AMD
+{
+  const sb = {}; vm.runInNewContext(fs.readFileSync(new URL('../src/content/nb-helpers.js', import.meta.url), 'utf8'), sb);
+  const H = sb.__nbacHelpers;
+  const r = H.parseHardwareHints({ text: 'Launcher Notebook Python 3 (ipykernel)', url: 'https://jupyter.anruicloud.com/instances/x/lab', extensions: ['@jupyterlab/application', '@amd-oneclick/resource-status'] });
+  assert.equal(r && r.vendor, 'amd');
+  assert.equal(r.source, 'jupyterlab');
+  const n = H.parseHardwareHints({ text: 'GPU: Tesla T4', url: 'https://www.kaggle.com/code/x', extensions: ['@jupyterlab/application', '@amd-oneclick/x'] });
+  assert.equal(n.vendor, 'nvidia', '页面文字明确写了 NVIDIA 时以文字为准');
+  assert.equal(H.parseHardwareHints({ text: '', url: 'https://x/lab', extensions: ['@jupyterlab/commands'] }), null);
+}
+
 // manifest：安睿云域名在所有内容脚本里都匹配、全部 frame 注入
 {
   const man = JSON.parse(fs.readFileSync(new URL('../manifest.json', import.meta.url), 'utf8'));
-  assert.equal(man.version, '0.1.6');
+  assert.equal(man.version, '0.1.7');
+  for (const f of ['src/content/page.js', 'src/content/bridge.js', 'src/content/nb-helpers.js']) {
+    const src = fs.readFileSync(new URL('../' + f, import.meta.url), 'utf8');
+    const m = src.match(/const BUILD = '([^']+)'/);
+    assert.ok(m && m[1] === man.version, f + ' 的 BUILD 必须等于 manifest version（否则网页里残留的旧脚本会挡住新版）');
+  }
   for (const perm of ['sidePanel', 'storage', 'scripting', 'activeTab']) assert.ok(man.permissions.includes(perm), perm);
   assert.ok(!man.permissions.includes('tabs'), '发布版不要 tabs 权限');
   assert.ok(man.host_permissions.includes('https://*.anruicloud.com/*'));

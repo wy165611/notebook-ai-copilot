@@ -8,8 +8,13 @@
 // 适配器：JupyterLab、经典 Notebook、VS Code 原生 Notebook（ModelScope Code Editor）、Kaggle DOM 兜底。
 // 注意：本脚本只把文本放进单元格，从不 eval 模型输出。
 (() => {
-  if (window.__nbacPageLoaded) return;
+  // 扩展更新后，网页里可能还留着旧版脚本（页面世界里的脚本不会随扩展重新加载而消失）。
+  // 所以按版本判断是否已加载，消息事件名也带版本号，旧脚本收不到新版的请求。BUILD 必须和 manifest 的 version 一致（单元测试会检查）
+  const BUILD = '0.1.7';
+  if (window.__nbacPageBuild === BUILD) return;
   window.__nbacPageLoaded = true;
+  window.__nbacPageBuild = BUILD;
+  const REQ_EVENT = 'nbac-request-' + BUILD, RES_EVENT = 'nbac-response-' + BUILD;
 
   const H = window.__nbacHelpers; // nb-helpers.js（manifest 里先于本文件加载）
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -842,8 +847,13 @@
   }
   // 读页面文字可能很慢（Kaggle / JupyterLab 的 DOM 很大），所以检测时只返回缓存，真正的扫描放到回报之后、有时间上限
   let hwCache = null, hwAt = 0, hwPending = false;
+  // JupyterLab 页面上已加载的插件名（window._JUPYTERLAB 的键），用来识别平台镜像，比如 AMD 的 @amd-oneclick/*
+  function labExtensionNames() {
+    try { const j = window._JUPYTERLAB; return j && typeof j === 'object' ? Object.keys(j).slice(0, 300) : []; } catch { return []; }
+  }
+
   function computeHardwareHint() {
-    try { hwCache = H.parseHardwareHints({ text: hardwareText(), url: location.href, platform: platformName() }); } catch { hwCache = null; }
+    try { hwCache = H.parseHardwareHints({ text: hardwareText(), url: location.href, platform: platformName(), extensions: labExtensionNames() }); } catch { hwCache = null; }
     hwAt = Date.now();
     return hwCache;
   }
@@ -985,7 +995,7 @@
     async runCell() { const a = pickAdapter(); if (!a) throw new Error('未检测到 Notebook'); return a.runCell(); }
   };
 
-  document.addEventListener('nbac-request', async (ev) => {
+  document.addEventListener(REQ_EVENT, async (ev) => {
     let req;
     try { req = JSON.parse(ev.detail); } catch { return; }
     let resp;
@@ -1000,6 +1010,6 @@
           stack: String(e && e.stack || '').split('\n').slice(0, 6).join('\n').slice(0, 800), steps: steps.slice(-20), at: new Date().toISOString() };
       }
     }
-    document.dispatchEvent(new CustomEvent('nbac-response', { detail: JSON.stringify(resp) }));
+    document.dispatchEvent(new CustomEvent(RES_EVENT, { detail: JSON.stringify(resp) }));
   });
 })();

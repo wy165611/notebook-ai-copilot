@@ -75,7 +75,7 @@ PASS [app] 修复后的单元格运行成功（输出 NBAC_FIXED 1.0）  [已插
 PASS [kaggle] iframe 来自另一个站点并加载了 JupyterLab  [http://kkb-production.jupyter-proxy.kagglenet.test:8901/lab/tree/test.ipynb?session=FAKE-SESSION&lsp=true]
 PASS [kaggle] iframe 里没有暴露 window.jupyterapp
 PASS [kaggle] 连上的是 iframe 里的 JupyterLab（不是顶层 kaggle 页面）  [已连接：Kaggle（jupyterlab，JupyterLab 模型，内嵌 frame）]
-PASS [kaggle] 顶层 www.kaggle 页面回报“不是 Notebook”  [frame 11: jupyterlab 3 个单元格  http://kkb-production.jupyter-proxy.kagglenet.test:8901/lab/tree/test.ipynb | frame 0(top): 不是 Notebook  http://www.kaggle.test:8765/code/someone/yolo11m-rdd2022/edit]
+PASS [kaggle] 顶层 www.kaggle 页面回报“不是 Notebook”  [frame 0(top): 不是 Notebook  http://www.kaggle.test:8765/code/someone/yolo11m-rdd2022/edit | frame 11: jupyterlab 3 个单元格  http://kkb-production.jupyter-proxy.kagglenet.test:8901/lab/tree/test.ipynb]
 PASS [kaggle] 从 iframe 读取单元格代码和报错
 PASS [kaggle] 系统提示按海外平台（不加清华镜像）
 PASS [kaggle] 在 iframe 里插入新单元格并写入代码  [已插入到新单元格（jupyterlab-model(listener-hook)），检查无误后在 Notebook 里运行]
@@ -94,7 +94,7 @@ PASS [aistudio] 页面里有 VS Code 诱饵 frame 和嵌套 webview  [http://ais
 PASS [aistudio] iframe 里没有暴露 window.jupyterapp
 PASS [aistudio] JupyterLab 是中文界面（按钮标题为中文）  [下方插入单元格 (B)]
 PASS [aistudio] 连上 #jupyterlab-frame（平台识别为飞桨 AI Studio）  [已连接：飞桨 AI Studio（jupyterlab，JupyterLab 模型，内嵌 frame）]
-PASS [aistudio] 宿主页、VS Code frame 和 webview 都回报“不是 Notebook”  [frame 15: jupyterlab 3 个单元格  http://aistudio.baidu.test:8770/bj-cpu-01/user/123/456/lab/tree/test.ipynb | frame 16: 不是 Notebook  http://aistudio.baidu.test:8770/bj-cpu-01/user/123/456/vscode/webview.html | frame 0(top): 不是 Notebook  http://aistudio.baidu.test:8770/bj-cpu-01/user/123/456/home#codelab | frame 14: 不是 Notebook  http://aistudio.baidu.test:8770/bj-cpu-01/user/123/456/vscode/]
+PASS [aistudio] 宿主页、VS Code frame 和 webview 都回报“不是 Notebook”  [frame 0(top): 不是 Notebook  http://aistudio.baidu.test:8770/bj-cpu-01/user/123/456/home#codelab | frame 15: jupyterlab 3 个单元格  http://aistudio.baidu.test:8770/bj-cpu-01/user/123/456/lab/tree/test.ipynb | frame 16: 不是 Notebook  http://aistudio.baidu.test:8770/bj-cpu-01/user/123/456/vscode/webview.html | frame 14: 不是 Notebook  http://aistudio.baidu.test:8770/bj-cpu-01/user/123/456/vscode/]
 PASS [aistudio] 读取单元格代码和报错
 PASS [aistudio] 系统提示带清华镜像（国内平台）
 PASS [aistudio] 打字/粘贴全被拦掉时，仍通过 JupyterLab 模型（webpack 共享作用域）插入并写入代码  [已插入到新单元格（jupyterlab-model(share-scope:default:4.6.6)），检查无误后在 Notebook 里运行]
@@ -123,14 +123,14 @@ print("NBAC_FIXED", x)
 PASS [monaco] Shift+Enter 运行（夹具的假运行）
 PASS [monaco] 拿不到 Monaco API 时对 textarea.inputarea 粘贴写入（内容完全一致）  [已插入到新单元格（toolbar-button+monaco-paste），检查无误后在 Notebook 里运行]
 PASS [monaco] 所有写入方式都失败时：提示失败、代码复制到剪贴板、不运行  [插入失败：没能把代码写进 Monaco 编辑器。代码已复制到剪贴板，请点进 Notebook 的单元格按 Ctrl+V（Mac 上 ⌘V）粘贴（没有运行） | 自动写入单元格失败，代码已复制到剪贴板。如果一直这样，可以点“+ → 复制诊断信息”发给开发者]
-PASS [monaco] 诊断信息里记录了最近一次写入失败的步骤  [{"action": "insertCellBelow", "message": "NBAC_WRITE_FAILED:没能把代码写进 Monaco 编辑器", "stack": "Error: NBAC_WRITE_FAILED:没能把代码写进 Monaco 编辑器\n    at writeMonaco (chrome-extension://kjhoaafikpbmkehjapdhbocpbiicaiig/src/content/page.js:201:11)\n    at async Object.insertCellBelow (chrome-extension://kjhoaaf]
+PASS [monaco] 诊断信息里记录了最近一次写入失败的步骤  [{"action": "insertCellBelow", "message": "NBAC_WRITE_FAILED:没能把代码写进 Monaco 编辑器", "stack": "Error: NBAC_WRITE_FAILED:没能把代码写进 Monaco 编辑器\n    at writeMonaco (chrome-extension://kjhoaafikpbmkehjapdhbocpbiicaiig/src/content/page.js:206:11)\n    at async Object.insertCellBelow (chrome-extension://kjhoaaf]
 
 === 飞桨 AI Studio 外层项目编辑器 ===
 PASS [outer] 外层编辑器提示去「专业开发」打开 BML Codelab  [这是 AI Studio 外层的项目编辑器，暂不支持。请点击「专业开发」打开 BML Codelab 后使用]
 
 === ModelScope Code Editor（VS Code 原生 Notebook，真实 DOM 结构夹具） ===
 PASS [ms] 连上 notebook-ide frame（平台 ModelScope，vscode-notebook）  [已连接：ModelScope（vscode-notebook，内嵌 frame）]
-PASS [ms] 外层页面和 extensionHost frame 回报“不是 Notebook”，跨域 webview 不注入  [frame 0(top): 不是 Notebook  http://modelscope.test:8771/code/workspace | frame 46: 不是 Notebook  http://modelscope.test:8771/notebook/extensionHostIframe.html | frame 44: vscode-notebook 2 个单元格  http://modelscope.test:8771/notebook/main.html]
+PASS [ms] 外层页面和 extensionHost frame 回报“不是 Notebook”，跨域 webview 不注入  [frame 0(top): 不是 Notebook  http://modelscope.test:8771/code/workspace | frame 44: vscode-notebook 2 个单元格  http://modelscope.test:8771/notebook/main.html | frame 46: 不是 Notebook  http://modelscope.test:8771/notebook/extensionHostIframe.html]
 PASS [ms] 识别到真实 Monaco 用的是 EditContext（.native-edit-context，没有 textarea.inputarea）
 PASS [ms] 内核是 /usr/bin/python3 时提示改选 /usr/local/bin/python  [当前内核是 /usr/bin/python3：在 ModelScope 免费 CPU 实例上它没有 ipykernel，运行会报错。请点 Notebook 右上角的内核名，改选 /usr/local/bin/python（Python 3.11），然后再运行。]
 PASS [ms] 读到当前单元格代码（Monaco 渲染行）  [需求：用 pandas 读一个 csv
@@ -176,7 +176,7 @@ PASS [ms] 悬停才出现、只有 title、只响应 mousedown 的单元格 + Co
 PASS [ms] 中文界面的工具栏“代码”按钮：插在当前单元格下方并写入  [已插入到新单元格（notebook-toolbar+monaco-paste），检查无误后在 Notebook 里运行]
 PASS [ms] 没有任何 + Code 按钮时按 B：插在当前单元格下方并写入  [已插入到新单元格（keyboard(B)+monaco-paste），检查无误后在 Notebook 里运行]
 PASS [ms] 插入新单元格失败时写进当前选中的空单元格并运行  [没法新建单元格，已写入当前选中的空单元格并开始运行（current-empty-cell+monaco-paste；运行：execute-button）]
-PASS [diag] 诊断信息包含所有 frame（外层页面、notebook-ide、extensionHost），标出适配器和关键选择器数量  [{"tool": "Notebook AI Copilot", "version": "0.1.6", "at": "2026-11-12T10:46:37.660Z", "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/158.0.0.0 Safari/537.36", "tabUrl": "http://modelscope.test:8771/code/workspace", "target": {"frameId": 81, "platform": "M]
+PASS [diag] 诊断信息包含所有 frame（外层页面、notebook-ide、extensionHost），标出适配器和关键选择器数量  [{"tool": "Notebook AI Copilot", "version": "0.1.7", "at": "2026-11-12T10:55:42.488Z", "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/158.0.0.0 Safari/537.36", "tabUrl": "http://modelscope.test:8771/code/workspace", "target": {"frameId": 81, "platform": "M]
 PASS [diag] ModelScope 列出候选动作按钮（tag/class/aria-label/title/文字）  [[{"tag": "a", "cls": "action-label codicon codicon-add", "aria": "Add Markdown Cell", "title": "", "text": "+", "visible": true}, {"tag": "a", "cls": "notebook-label", "aria": "", "title": "", "text": "Markdown", "visible": true}, {"tag": "a", "cls": "action-label codicon codicon-notebook-execute-all", "aria": "Run All", "title": "", "text": "▷", "visible": true}]]
 PASS [diag] 诊断信息不含代码、输出和 API Key
 PASS [diag] 点按钮后提示已复制到剪贴板（或显示在框里手动复制）  [诊断信息已复制到剪贴板（3 个 frame，8396 字），直接粘贴发给开发者即可。不含代码、输出和 API Key。]
@@ -219,7 +219,7 @@ PASS [selfhosted] 刷新后脚本自动加载（document_start 的 early.js 也�
 PASS [selfhosted] 刷新后直接连上（不用再注入），走 JupyterLab 模型  [已连接：Jupyter（jupyterlab，JupyterLab 模型，主页面）]
 PASS [noperm] 没有权限：状态说明需要权限，并显示「在此网站启用助手」  [助手还没有访问这个网站的权限，所以读不到 Notebook | 点下面的按钮，Chrome 会询问是否允许助手访问 http://noperm.test（只申请这一个网站）]
 PASS [noperm] 状态不再误报“不是 Notebook 页面”  [助手还没有访问这个网站的权限，所以读不到 Notebook]
-PASS [noperm] 诊断信息里有注入失败原因和权限信息  [{"at": "2026-11-12T10:47:18.370Z", "ok": false, "error": "Cannot access contents of url \"http://noperm.test:8903/instances/rgapi-one-click-test-0001/lab/tree/test.ipynb\". Extension manifest must req]
+PASS [noperm] 诊断信息里有注入失败原因和权限信息  [{"at": "2026-11-12T10:56:23.267Z", "ok": false, "error": "Cannot access contents of url \"http://noperm.test:8903/instances/rgapi-one-click-test-0001/lab/tree/test.ipynb\". Extension manifest must req]
 
 === 截图 ===
 PASS [demo] 截图用的运行也成功

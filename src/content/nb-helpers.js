@@ -1,7 +1,8 @@
 // 纯函数（不碰 DOM），给 page.js 用，也方便 node 单元测试（tests/unit_test.mjs 用 vm 加载本文件）。
 (() => {
   const root = typeof window !== 'undefined' ? window : globalThis;
-  if (root.__nbacHelpers) return;
+  const BUILD = '0.1.7'; // 和 manifest 的 version 一致；旧版留在网页里的 helpers 会被替换
+  if (root.__nbacHelpers && root.__nbacHelpers.build === BUILD) return;
 
   // 比较用：去掉 \r、每行行尾空白、首尾空行
   function normCode(t) {
@@ -49,7 +50,7 @@
 
   // 从页面上的文字（平台顶栏、实例规格、加速器选择等）和网址里猜硬件。
   // 只是提示：真正的硬件以“检测硬件”单元格的运行结果为准。返回 {vendor: 'amd'|'nvidia'|'cpu'|'gpu', model, vramGB, source, evidence} 或 null
-  function parseHardwareHints({ text, url }) {
+  function parseHardwareHints({ text, url, extensions }) {
     const t = String(text || '').replace(/\s+/g, ' ').slice(0, 30000);
     let u = null;
     try { u = new URL(url); } catch { /* ignore */ }
@@ -77,6 +78,9 @@
       t.match(/([\d.]+)\s*(?:GB|GiB|G)\s*(?:VRAM|显存)/i);
     if (v) vramGB = parseFloat(v[1]);
     if (vendor) return { vendor, model, vramGB, source: 'page', evidence: (vendor === 'amd' ? amdHits : nvHits).slice(0, 3).join(', ') };
+    // JupyterLab 装的插件名：安睿云的 AMD 一键镜像带 @amd-oneclick/resource-status 等
+    const ext = (extensions || []).map(String).filter(n => /(^|[@/_-])amd([/_-]|$)|rocm/i.test(n));
+    if (ext.length) return { vendor: 'amd', model: '', vramGB: null, source: 'jupyterlab', evidence: ext.slice(0, 2).join(', ') };
     // 网址里的加速器类型（ModelScope：acceleratorType=CPU / GPU）
     const acc = u && (u.searchParams.get('acceleratorType') || u.searchParams.get('accelerator'));
     if (acc && /^cpu$/i.test(acc)) return { vendor: 'cpu', model: '', vramGB: null, source: 'url', evidence: 'acceleratorType=' + acc };
@@ -86,5 +90,5 @@
     return null;
   }
 
-  root.__nbacHelpers = { normCode, codeMatches, joinViewLines, vscodeKernelHint, platformFromHost, parseHardwareHints };
+  root.__nbacHelpers = { build: BUILD, normCode, codeMatches, joinViewLines, vscodeKernelHint, platformFromHost, parseHardwareHints };
 })();

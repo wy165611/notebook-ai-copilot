@@ -3,13 +3,16 @@
 // 回报自己的结果（含“不是 Notebook”），侧边栏根据 sender.frameId 选出真正有
 // Notebook 的那个 frame，之后的操作都用 {frameId} 只发给它。
 (() => {
-  if (window.__nbacBridgeLoaded) return;
+  const BUILD = '0.1.7'; // 必须和 manifest 的 version、page.js 的 BUILD 一致
+  if (window.__nbacBridgeBuild === BUILD) return;
   window.__nbacBridgeLoaded = true;
+  window.__nbacBridgeBuild = BUILD;
+  const REQ_EVENT = 'nbac-request-' + BUILD, RES_EVENT = 'nbac-response-' + BUILD;
 
   let seq = 0;
   const pending = new Map();
 
-  document.addEventListener('nbac-response', (ev) => {
+  document.addEventListener(RES_EVENT, (ev) => {
     let data;
     try { data = JSON.parse(ev.detail); } catch { return; }
     const p = pending.get(data.id);
@@ -26,7 +29,7 @@
         resolve({ ok: false, error: 'timeout（页面脚本没有响应）' });
       }, timeoutMs);
       pending.set(id, (d) => { clearTimeout(timer); resolve(d); });
-      document.dispatchEvent(new CustomEvent('nbac-request', {
+      document.dispatchEvent(new CustomEvent(REQ_EVENT, {
         detail: JSON.stringify({ id, action, args: args || {} })
       }));
     });
