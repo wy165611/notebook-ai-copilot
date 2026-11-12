@@ -81,7 +81,8 @@ Chrome 偶尔会提示“停用开发者模式扩展”，点关闭即可。
 | 平台 | 匹配的网址 | 适配方式 |
 |---|---|---|
 | 飞桨 AI Studio（BML Codelab，基于 JupyterLab） | `aistudio.baidu.com`、`*.aistudio.baidu.com` | `#jupyterlab-frame` iframe 里的 JupyterLab 走 JupyterLab 适配器（支持 Monaco 编辑器）；外层项目编辑器不支持，见下文 |
-| ModelScope Notebook | `modelscope.cn`、`*.modelscope.cn`、`*.data.aliyun.com`（如 `dsw-gateway-cn-hangzhou.data.aliyun.com/dsw-xxxx/lab`） | 免费 CPU 实例的 Code Editor（VS Code 网页版）走 **VS Code Notebook 适配器**；打开的是 JupyterLab 时走 JupyterLab 适配器 |
+| ModelScope Notebook | `modelscope.cn`、`*.modelscope.cn` | 免费 CPU 实例的 Code Editor（VS Code 网页版）走 **VS Code Notebook 适配器**；打开的是 JupyterLab 时走 JupyterLab 适配器 |
+| ModelScope DSW（GPU 实例，阿里云 PAI-DSW） | `*.data.aliyun.com`（如 `dsw-gateway-cn-hangzhou.data.aliyun.com/dsw-xxxx/lab?appId=MAAS&…`） | 顶层页面就是 JupyterLab，走 JupyterLab 适配器；侧边栏显示「ModelScope DSW」，连接后在内核里静默检测硬件 |
 | Kaggle（`www.kaggle.com/code/.../edit`） | `www.kaggle.com`、`*.kaggleusercontent.com`、`*.kaggle.net`（单元格所在的 `kkb-production.jupyter-proxy.kaggle.net` iframe） | iframe 里的 JupyterLab 4 走 JupyterLab 适配器；顶层 kaggle.com 页面没有单元格，会回报“不是 Notebook” |
 | 安睿云 JupyterLab（`jupyter.anruicloud.com/instances/<实例>/lab`） | `*.anruicloud.com`（包括 `jupyter.anruicloud.com` 的任意路径，如 `/instances/<实例>/lab`、`/instances/<实例>/lab/tree/…`） | 顶层页面就是标准 JupyterLab，走 JupyterLab 适配器（直接写单元格模型）；侧边栏显示「安睿云 JupyterLab」 |
 

@@ -1,7 +1,7 @@
 // 纯函数（不碰 DOM），给 page.js 用，也方便 node 单元测试（tests/unit_test.mjs 用 vm 加载本文件）。
 (() => {
   const root = typeof window !== 'undefined' ? window : globalThis;
-  const BUILD = '0.1.10'; // 和 manifest 的 version 一致；旧版留在网页里的 helpers 会被替换
+  const BUILD = '0.1.11'; // 和 manifest 的 version 一致；旧版留在网页里的 helpers 会被替换
   if (root.__nbacHelpers && root.__nbacHelpers.build === BUILD) return;
 
   // 比较用：去掉 \r、每行行尾空白、首尾空行
@@ -45,7 +45,9 @@
   function platformFromHost(hostname) {
     const h = String(hostname || '').toLowerCase();
     if (/(^|\.)aistudio\.baidu\.(com|test)$/.test(h)) return '飞桨 AI Studio';
-    if (/(^|\.)modelscope\.(cn|test)$/.test(h) || /(^|\.)data\.aliyun\.com$/.test(h)) return 'ModelScope';
+    // ModelScope GPU 实例（阿里云 PAI-DSW）：dsw-gateway-*.data.aliyun.com/dsw-xxxx/lab，JupyterLab 界面
+    if (/(^|\.)data\.aliyun\.(com|test)$/.test(h)) return 'ModelScope DSW';
+    if (/(^|\.)modelscope\.(cn|test)$/.test(h)) return 'ModelScope';
     if (/(^|\.)anruicloud\.(com|test)$/.test(h)) return '安睿云 JupyterLab';
     if (/kaggle/.test(h)) return 'Kaggle';
     return 'Jupyter';

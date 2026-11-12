@@ -14,7 +14,7 @@ def main():
         p = ROOT / name
         (shutil.copytree if p.is_dir() else shutil.copy)(p, OUT / name)
     m = json.loads((ROOT / 'manifest.json').read_text())
-    extra = ['http://127.0.0.1/*', 'http://localhost/*', 'http://*.kaggle.test/*', 'http://*.kagglenet.test/*', 'http://aistudio.baidu.test/*', 'http://modelscope.test/*', 'http://*.anruicloud.test/*']
+    extra = ['http://127.0.0.1/*', 'http://localhost/*', 'http://*.kaggle.test/*', 'http://*.kagglenet.test/*', 'http://aistudio.baidu.test/*', 'http://modelscope.test/*', 'http://*.anruicloud.test/*', 'http://*.data.aliyun.test/*']
     for cs in m['content_scripts']:
         cs['matches'] += extra
     # selfhosted.test：只给主机权限、不在内容脚本匹配列表里（仿“自建 JupyterLab”，测侧边栏主动注入）

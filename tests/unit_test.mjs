@@ -64,7 +64,8 @@ assert.deepEqual(filterChatModels(['qwen3.8-max', 'paraformer-v2', 'qwen-tts', '
   assert.equal(H.platformFromHost('notanruicloud.com'), 'Jupyter');
   assert.equal(H.platformFromHost('aistudio.baidu.com'), '飞桨 AI Studio');
   assert.equal(H.platformFromHost('modelscope.cn'), 'ModelScope');
-  assert.equal(H.platformFromHost('dsw-gateway-cn-hangzhou.data.aliyun.com'), 'ModelScope');
+  assert.equal(H.platformFromHost('dsw-gateway-cn-hangzhou.data.aliyun.com'), 'ModelScope DSW');
+  assert.equal(H.platformFromHost('www.modelscope.cn'), 'ModelScope');
   assert.equal(H.platformFromHost('kkb-production.jupyter-proxy.kaggle.net'), 'Kaggle');
   assert.equal(H.platformFromHost('127.0.0.1'), 'Jupyter');
   const ms = (o) => H.vscodeKernelHint({ hasButton: true, label: '', pageText: '', ...o });
@@ -115,7 +116,7 @@ assert.deepEqual(filterChatModels(['qwen3.8-max', 'paraformer-v2', 'qwen-tts', '
 // manifest：安睿云域名在所有内容脚本里都匹配、全部 frame 注入
 {
   const man = JSON.parse(fs.readFileSync(new URL('../manifest.json', import.meta.url), 'utf8'));
-  assert.equal(man.version, '0.1.10');
+  assert.equal(man.version, '0.1.11');
   for (const f of ['src/content/page.js', 'src/content/bridge.js', 'src/content/nb-helpers.js']) {
     const src = fs.readFileSync(new URL('../' + f, import.meta.url), 'utf8');
     const m = src.match(/const BUILD = '([^']+)'/);

@@ -792,6 +792,45 @@ def test_modelscope(ctx, sw):
 ANRUI_BASE = '/instances/rgapi-one-click-test-0001/'
 ANRUI = 'http://jupyter.anruicloud.test:8903'
 
+DSW_BASE = '/dsw-2367657/'
+DSW = 'http://dsw-gateway-cn-hangzhou.data.aliyun.test:8904'
+
+def test_dsw(ctx, sw):
+    """ModelScope GPU 实例（阿里云 PAI-DSW）：https://dsw-gateway-cn-hangzhou.data.aliyun.com/dsw-xxxx/lab?appId=MAAS&...，
+    顶层页面就是 JupyterLab。本地用真实 JupyterLab + 同样的 base_url，域名 *.data.aliyun.test 指向本机。"""
+    print('\n=== ModelScope DSW（阿里云 PAI-DSW JupyterLab） ===', flush=True)
+    page = ctx.new_page()
+    page.set_viewport_size({'width': 1100, 'height': 900})
+    page.goto(DSW + DSW_BASE + 'lab/tree/test.ipynb?appId=MAAS&instanceId=dsw-test&site=cn&features=EnableSubDomainProxy')
+    page.wait_for_selector('.jp-Notebook .jp-Cell .cm-content', timeout=60000)
+    time.sleep(3)
+    cells = lambda: page.query_selector_all('.jp-Notebook .jp-Cell .cm-content')
+    cells()[0].click(); page.keyboard.press('Shift+Enter')
+    page.wait_for_function("() => [...document.querySelectorAll('.jp-OutputArea-output')].some(e => e.innerText.includes('42'))", timeout=60000)
+    cells()[1].click()
+    n0 = lab_cell_count(page)
+    panel = open_panel(ctx, sw, DSW + '/dsw-*')
+    set_storage(panel, providers=mock_providers(), active='bailian', thinking='default', includeContext=True)
+    panel.click('#plusBtn'); panel.click('#refresh')
+    status = wait_status_ok(panel)
+    check('[dsw] 识别为「ModelScope DSW」，顶层 JupyterLab', 'ModelScope DSW（jupyterlab' in status and '主页面' in status, status)
+    hw = ''
+    for _ in range(90):
+        hw = panel.inner_text('#hw')
+        if '已检测' in hw or '没成功' in hw: break
+        time.sleep(1)
+    check('[dsw] 连接后自动在内核里静默检测硬件：显示 CPU 核数和内存，不新建单元格', '核 CPU' in hw and 'GB 内存' in hw and '已检测' in hw and lab_cell_count(page) == n0, hw)
+    check('[dsw] 页面上看不到检测代码的输出', not page.evaluate("() => document.body.innerText.includes('NBAC_HW')"))
+    code, _, _ = ask(panel, '读一个 csv 并画图')
+    L = last()
+    sysp = L.get('system', '')
+    check('[dsw] 系统提示带平台名、清华镜像，并要求按实际配置写代码', 'ModelScope DSW' in sysp and 'pypi.tuna.tsinghua.edu.cn' in sysp and '所有代码都要按上面这份实际配置来写' in sysp and '核' in sysp, sysp[-300:])
+    msg = last_bot(panel)
+    msg.query_selector('.act-run').click()
+    r = click_and_wait_result(panel, msg, '.act-confirm')
+    check('[dsw] 确认后插入并运行，输出 NBAC_OK 42 True', wait_text(page, 'NBAC_OK 42 True') and lab_cell_count(page) == n0 + 1, r)
+    panel.close(); page.close()
+
 def test_anrui(ctx, sw):
     """安睿云自建 JupyterLab：https://jupyter.anruicloud.com/instances/<实例>/lab，顶层页面就是 JupyterLab（不是 iframe），
     没有暴露 window.jupyterapp。本地用真实 JupyterLab 4 + 同样的 base_url，域名 jupyter.anruicloud.test 指向本机。"""
@@ -1000,6 +1039,7 @@ def main():
     labs.append(subprocess.Popen([PY, str(HERE / 'aistudio_proxy.py'), '8770', '8902']))
     labs.append(subprocess.Popen([PY, str(HERE / 'modelscope_server.py'), '8771']))
     labs.append(start_lab(8903, False, base_url=ANRUI_BASE, remote=True))
+    labs.append(start_lab(8904, False, base_url=DSW_BASE, remote=True))
     try:
         wait_http(MOCK + '/last')
         wait_http('http://127.0.0.1:8770/bj-cpu-01/user/123/456/home')
@@ -1010,12 +1050,12 @@ def main():
                 f'--disable-extensions-except={ext}', f'--load-extension={ext}',
                 '--disable-background-timer-throttling', '--disable-renderer-backgrounding',
                 '--disable-backgrounding-occluded-windows', '--window-size=1100,1000', '--window-position=0,0',
-                '--host-resolver-rules=MAP *.kaggle.test 127.0.0.1, MAP *.kagglenet.test 127.0.0.1, MAP aistudio.baidu.test 127.0.0.1, MAP modelscope.test 127.0.0.1, MAP g.alicdn.test 127.0.0.1, MAP *.anruicloud.test 127.0.0.1, MAP selfhosted.test 127.0.0.1, MAP noperm.test 127.0.0.1'])
+                '--host-resolver-rules=MAP *.kaggle.test 127.0.0.1, MAP *.kagglenet.test 127.0.0.1, MAP aistudio.baidu.test 127.0.0.1, MAP modelscope.test 127.0.0.1, MAP g.alicdn.test 127.0.0.1, MAP *.anruicloud.test 127.0.0.1, MAP *.data.aliyun.test 127.0.0.1, MAP selfhosted.test 127.0.0.1, MAP noperm.test 127.0.0.1'])
             sw = ctx.service_workers[0] if ctx.service_workers else ctx.wait_for_event('serviceworker')
             for t in (test_options, test_models_and_thinking,
                       lambda c, s: test_jupyterlab(c, s, 8899, 'dom'),
                       lambda c, s: test_jupyterlab(c, s, 8900, 'app'),
-                      test_kaggle, test_aistudio, test_aistudio_monaco, test_aistudio_outer, test_modelscope, test_modelscope_autoprobe, test_anrui, test_selfhosted, screenshot_demo):
+                      test_kaggle, test_aistudio, test_aistudio_monaco, test_aistudio_outer, test_modelscope, test_modelscope_autoprobe, test_dsw, test_anrui, test_selfhosted, screenshot_demo):
                 only = os.environ.get('NBAC_ONLY')
                 if only and getattr(t, '__name__', '') != only: continue
                 try:
