@@ -36,7 +36,7 @@ export const PROVIDER_IDS = Object.keys(PRESETS);
 
 export const DEFAULTS = {
   active: 'bailian',
-  thinking: 'default',
+  thinking: 'max',
   includeContext: true,
   temperature: 0.2,
   providers: Object.fromEntries(PROVIDER_IDS.map((id) => [id, { baseUrl: PRESETS[id].baseUrl, apiKey: '', model: PRESETS[id].model }])),
