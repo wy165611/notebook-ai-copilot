@@ -46,12 +46,12 @@ print("NBAC_OK", 6 * 7, platform.python_vers]
 PASS [dom] 只插入时没有自动运行
 PASS [dom] 点“插入并运行”后先出现确认框
 PASS [dom] 确认前什么都没插入/运行
-PASS [dom] 确认后插入并运行，看到输出 “NBAC_OK 42 True”  [已插入新单元格并开始运行（jupyterlab-model(listener-hook)）]
+PASS [dom] 确认后插入并运行，看到输出 “NBAC_OK 42 True”  [已插入新单元格并开始运行（jupyterlab-model(listener-hook)；运行：jupyterlab-model）]
 PASS [dom] “修复报错”把代码和报错发给模型
 PASS [dom] “修复报错”返回修好的单元格
-PASS [dom] 修复后的单元格运行成功（输出 NBAC_FIXED 1.0）  [已插入新单元格并开始运行（jupyterlab-model(listener-hook)）]
-PASS [dom] 工具栏被隐藏时仍能插入并运行（用隐藏的工具栏按钮）  [已插入新单元格并开始运行（toolbar-button+cm6）]
-PASS [dom] 没有任何按钮时用快捷键/底部添加区插入并用 Shift+Enter 运行  [已插入新单元格并开始运行（keyboard+cm6）]
+PASS [dom] 修复后的单元格运行成功（输出 NBAC_FIXED 1.0）  [已插入新单元格并开始运行（jupyterlab-model(listener-hook)；运行：jupyterlab-model）]
+PASS [dom] 工具栏被隐藏时仍能插入并运行（用隐藏的工具栏按钮）  [已插入新单元格并开始运行（toolbar-button+cm6；运行：keyboard）]
+PASS [dom] 没有任何按钮时用快捷键/底部添加区插入并用 Shift+Enter 运行  [已插入新单元格并开始运行（keyboard+cm6；运行：keyboard）]
 
 === JupyterLab (app) on :8900 ===
 PASS [app] 检测到 Notebook  [已连接：Jupyter（jupyterlab，JupyterLab API，主页面）]
@@ -66,10 +66,10 @@ print("NBAC_OK", 6 * 7, platform.python_vers]
 PASS [app] 只插入时没有自动运行
 PASS [app] 点“插入并运行”后先出现确认框
 PASS [app] 确认前什么都没插入/运行
-PASS [app] 确认后插入并运行，看到输出 “NBAC_OK 42 True”  [已插入新单元格并开始运行（jupyterlab-commands）]
+PASS [app] 确认后插入并运行，看到输出 “NBAC_OK 42 True”  [已插入新单元格并开始运行（jupyterlab-commands；运行：jupyterlab-commands）]
 PASS [app] “修复报错”把代码和报错发给模型
 PASS [app] “修复报错”返回修好的单元格
-PASS [app] 修复后的单元格运行成功（输出 NBAC_FIXED 1.0）  [已插入新单元格并开始运行（jupyterlab-commands）]
+PASS [app] 修复后的单元格运行成功（输出 NBAC_FIXED 1.0）  [已插入新单元格并开始运行（jupyterlab-commands；运行：jupyterlab-commands）]
 
 === Kaggle（顶层页面 + 跨站 JupyterLab iframe） ===
 PASS [kaggle] iframe 来自另一个站点并加载了 JupyterLab  [http://kkb-production.jupyter-proxy.kagglenet.test:8901/lab/tree/test.ipynb?session=FAKE-SESSION&lsp=true]
@@ -81,11 +81,12 @@ PASS [kaggle] 系统提示按海外平台（不加清华镜像）
 PASS [kaggle] 在 iframe 里插入新单元格并写入代码  [已插入到新单元格（jupyterlab-model(listener-hook)），检查无误后在 Notebook 里运行]
 PASS [kaggle] 只插入时没有运行
 PASS [kaggle] 运行前要确认
-PASS [kaggle] 确认后在 iframe 里插入并运行，输出 NBAC_OK 42 True  [已插入新单元格并开始运行（jupyterlab-model(listener-hook)）]
+PASS [kaggle] 确认后在 iframe 里插入并运行，输出 NBAC_OK 42 True  [已插入新单元格并开始运行（jupyterlab-model(listener-hook)；运行：jupyterlab-model）]
+PASS [kaggle] 运行走 JupyterLab 模型 + 内核会话，并确认真的开始执行了  [已插入新单元格并开始运行（jupyterlab-model(listener-hook)；运行：jupyterlab-model）]
 PASS [kaggle] 修复报错：把 iframe 里的报错发给模型
-PASS [kaggle] 修复后的单元格在 iframe 里运行成功（NBAC_FIXED 1.0）  [已插入新单元格并开始运行（jupyterlab-model(listener-hook)）]
-PASS [kaggle] 工具栏被隐藏时仍能插入并运行（用隐藏的工具栏按钮）  [已插入新单元格并开始运行（toolbar-button+cm6）]
-PASS [kaggle] 没有任何按钮时用快捷键/底部添加区插入并用 Shift+Enter 运行  [已插入新单元格并开始运行（notebook-footer(末尾)+cm6，找不到“在下方插入”，已加到 Notebook 末尾）]
+PASS [kaggle] 修复后的单元格在 iframe 里运行成功（NBAC_FIXED 1.0）  [已插入新单元格并开始运行（jupyterlab-model(listener-hook)；运行：jupyterlab-model）]
+PASS [kaggle] 工具栏被隐藏时仍能插入并运行（用隐藏的工具栏按钮）  [已插入新单元格并开始运行（toolbar-button+cm6；运行：keyboard）]
+PASS [kaggle] 没有任何按钮时用快捷键/底部添加区插入并用 Shift+Enter 运行  [已插入新单元格并开始运行（notebook-footer(末尾)+cm6，找不到“在下方插入”，已加到 Notebook 末尾；运行：keyboard）]
 
 === 飞桨 AI Studio（BML Codelab 宿主页 + #jupyterlab-frame + VS Code 诱饵） ===
 PASS [aistudio] #jupyterlab-frame 与宿主页同源
@@ -93,15 +94,15 @@ PASS [aistudio] 页面里有 VS Code 诱饵 frame 和嵌套 webview  [http://ais
 PASS [aistudio] iframe 里没有暴露 window.jupyterapp
 PASS [aistudio] JupyterLab 是中文界面（按钮标题为中文）  [下方插入单元格 (B)]
 PASS [aistudio] 连上 #jupyterlab-frame（平台识别为飞桨 AI Studio）  [已连接：飞桨 AI Studio（jupyterlab，JupyterLab 模型，内嵌 frame）]
-PASS [aistudio] 宿主页、VS Code frame 和 webview 都回报“不是 Notebook”  [frame 16: 不是 Notebook  http://aistudio.baidu.test:8770/bj-cpu-01/user/123/456/vscode/webview.html | frame 14: 不是 Notebook  http://aistudio.baidu.test:8770/bj-cpu-01/user/123/456/vscode/ | frame 0(top): 不是 Notebook  http://aistudio.baidu.test:8770/bj-cpu-01/user/123/456/home#codelab | frame 15: jupyterlab 3 个单元格  http://aistudio.baidu.test:8770/bj-cpu-01/user/123/456/lab/tree/test.ipynb]
+PASS [aistudio] 宿主页、VS Code frame 和 webview 都回报“不是 Notebook”  [frame 14: 不是 Notebook  http://aistudio.baidu.test:8770/bj-cpu-01/user/123/456/vscode/ | frame 15: jupyterlab 3 个单元格  http://aistudio.baidu.test:8770/bj-cpu-01/user/123/456/lab/tree/test.ipynb | frame 0(top): 不是 Notebook  http://aistudio.baidu.test:8770/bj-cpu-01/user/123/456/home#codelab | frame 16: 不是 Notebook  http://aistudio.baidu.test:8770/bj-cpu-01/user/123/456/vscode/webview.html]
 PASS [aistudio] 读取单元格代码和报错
 PASS [aistudio] 系统提示带清华镜像（国内平台）
 PASS [aistudio] 打字/粘贴全被拦掉时，仍通过 JupyterLab 模型（webpack 共享作用域）插入并写入代码  [已插入到新单元格（jupyterlab-model(share-scope:default:4.6.6)），检查无误后在 Notebook 里运行]
 PASS [aistudio] 运行前要确认
-PASS [aistudio] 确认后插入并运行，输出 NBAC_OK 42 True  [已插入新单元格并开始运行（jupyterlab-model(listener-hook)）]
-PASS [aistudio] 修复报错后运行成功（NBAC_FIXED 1.0）  [已插入新单元格并开始运行（jupyterlab-model(listener-hook)）]
-PASS [aistudio] 工具栏被隐藏时仍能插入并运行（用隐藏的工具栏按钮）  [已插入新单元格并开始运行（toolbar-button+cm6）]
-PASS [aistudio] 没有任何按钮时用快捷键/底部添加区插入并用 Shift+Enter 运行  [已插入新单元格并开始运行（keyboard+cm6）]
+PASS [aistudio] 确认后插入并运行，输出 NBAC_OK 42 True  [已插入新单元格并开始运行（jupyterlab-model(listener-hook)；运行：jupyterlab-model）]
+PASS [aistudio] 修复报错后运行成功（NBAC_FIXED 1.0）  [已插入新单元格并开始运行（jupyterlab-model(listener-hook)；运行：jupyterlab-model）]
+PASS [aistudio] 工具栏被隐藏时仍能插入并运行（用隐藏的工具栏按钮）  [已插入新单元格并开始运行（toolbar-button+cm6；运行：keyboard）]
+PASS [aistudio] 没有任何按钮时用快捷键/底部添加区插入并用 Shift+Enter 运行  [已插入新单元格并开始运行（keyboard+cm6；运行：keyboard）]
 
 === 飞桨 AI Studio Monaco 单元格（真实 DOM 结构夹具，运行为假） ===
 PASS [monaco] 夹具里没有全局 window.monaco，编辑器用 textarea.inputarea（和真实页面一致）
@@ -116,13 +117,13 @@ y = 1/0
 最近的报错输出：
 ```
 -----------------------------------------------]
-PASS [monaco] 用中文标题的单元格工具栏按钮插入，并通过 AMD loader 里的 Monaco API 写入（内容完全一致）  [已插入新单元格并开始运行（toolbar-button+monaco-api(amd-require)） | x = 1 / 1  # 除数改成非 0
+PASS [monaco] 用中文标题的单元格工具栏按钮插入，并通过 AMD loader 里的 Monaco API 写入（内容完全一致）  [已插入新单元格并开始运行（toolbar-button+monaco-api(amd-require)；运行：keyboard） | x = 1 / 1  # 除数改成非 0
 print("NBAC_FIXED", x)
 ]
 PASS [monaco] Shift+Enter 运行（夹具的假运行）
 PASS [monaco] 拿不到 Monaco API 时对 textarea.inputarea 粘贴写入（内容完全一致）  [已插入到新单元格（toolbar-button+monaco-paste），检查无误后在 Notebook 里运行]
 PASS [monaco] 所有写入方式都失败时：提示失败、代码复制到剪贴板、不运行  [插入失败：没能把代码写进 Monaco 编辑器。代码已复制到剪贴板，请点进 Notebook 的单元格按 Ctrl+V（Mac 上 ⌘V）粘贴（没有运行） | 自动写入单元格失败，代码已复制到剪贴板。如果一直这样，可以点“+ → 复制诊断信息”发给开发者]
-PASS [monaco] 诊断信息里记录了最近一次写入失败的步骤  [{"action": "insertCellBelow", "message": "NBAC_WRITE_FAILED:没能把代码写进 Monaco 编辑器", "stack": "Error: NBAC_WRITE_FAILED:没能把代码写进 Monaco 编辑器\n    at writeMonaco (chrome-extension://kjhoaafikpbmkehjapdhbocpbiicaiig/src/content/page.js:197:11)\n    at async Object.insertCellBelow (chrome-extension://kjhoaaf]
+PASS [monaco] 诊断信息里记录了最近一次写入失败的步骤  [{"action": "insertCellBelow", "message": "NBAC_WRITE_FAILED:没能把代码写进 Monaco 编辑器", "stack": "Error: NBAC_WRITE_FAILED:没能把代码写进 Monaco 编辑器\n    at writeMonaco (chrome-extension://kjhoaafikpbmkehjapdhbocpbiicaiig/src/content/page.js:201:11)\n    at async Object.insertCellBelow (chrome-extension://kjhoaaf]
 
 === 飞桨 AI Studio 外层项目编辑器 ===
 PASS [outer] 外层编辑器提示去「专业开发」打开 BML Codelab  [这是 AI Studio 外层的项目编辑器，暂不支持。请点击「专业开发」打开 BML Codelab 后使用]
@@ -144,7 +145,8 @@ PASS [ms] 点当前单元格下方的“+ Code”插入，并通过粘贴写入 
 PASS [ms] 插入后仍提示内核问题  [当前内核是 /usr/bin/python3：在 ModelScope 免费 CPU 实例上它没有 ipykernel，运行会报错。请点 Notebook 右上角的内核名，改选 /usr/local/bin/python（Python 3.11），然后再运行。]
 PASS [ms] 换好内核后提示消失
 PASS [ms] 运行前要确认
-PASS [ms] 确认后插入并用单元格的 Execute Cell 按钮运行（NBAC_OK 42 True）  [已插入新单元格并开始运行（cell-toolbar+monaco-paste） | [{"index": 3, "text": "NBAC_OK 42 True", "code": "import platform\nprint(\"NBAC_OK\", 6 * 7, platform.python_version() != \"\")\n"}]]
+PASS [ms] 确认后插入并用单元格的 Execute Cell 按钮运行（NBAC_OK 42 True）  [已插入新单元格并开始运行（cell-toolbar+monaco-paste；运行：execute-button） | [{"index": 3, "text": "NBAC_OK 42 True", "code": "import platform\nprint(\"NBAC_OK\", 6 * 7, platform.python_version() != \"\")\n"}]]
+PASS [ms] 运行后新单元格的执行序号变了（夹具仿 VS Code 的 [*]/[N]）  [已插入新单元格并开始运行（cell-toolbar+monaco-paste；运行：execute-button）]
 PASS [ms] 用户贴进来的报错作为报错输出发给模型  [请修复下面这个单元格的报错，输出修好后的完整单元格。
 
 当前单元格代码：
@@ -156,7 +158,7 @@ y = 1/0
 ```
 ZeroDivisionError: division by zero
 ```]
-PASS [ms] 修复代码插在出错单元格下方并运行（NBAC_FIXED 1.0）  [已插入新单元格并开始运行（cell-toolbar+monaco-paste）]
+PASS [ms] 修复代码插在出错单元格下方并运行（NBAC_FIXED 1.0）  [已插入新单元格并开始运行（cell-toolbar+monaco-paste；运行：execute-button）]
 PASS [ms] 输出在 DOM 里时直接读到报错  [请修复下面这个单元格的报错，输出修好后的完整单元格。
 
 当前单元格代码：
@@ -173,29 +175,54 @@ PASS [ms] 写不进编辑器时提示并把代码复制到剪贴板，不运行 
 PASS [ms] 悬停才出现、只有 title、只响应 mousedown 的单元格 + Code：插在当前单元格下方并写入  [已插入到新单元格（cell-toolbar+monaco-paste），检查无误后在 Notebook 里运行]
 PASS [ms] 中文界面的工具栏“代码”按钮：插在当前单元格下方并写入  [已插入到新单元格（notebook-toolbar+monaco-paste），检查无误后在 Notebook 里运行]
 PASS [ms] 没有任何 + Code 按钮时按 B：插在当前单元格下方并写入  [已插入到新单元格（keyboard(B)+monaco-paste），检查无误后在 Notebook 里运行]
-PASS [ms] 插入新单元格失败时写进当前选中的空单元格并运行  [没法新建单元格，已写入当前选中的空单元格并开始运行（current-empty-cell+monaco-paste）]
-PASS [diag] 诊断信息包含所有 frame（外层页面、notebook-ide、extensionHost），标出适配器和关键选择器数量  [{"tool": "Notebook AI Copilot", "version": "0.1.3", "at": "2026-11-12T10:04:11.942Z", "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/158.0.0.0 Safari/537.36", "tabUrl": "http://modelscope.test:8771/code/workspace", "target": {"frameId": 81, "platform": "M]
+PASS [ms] 插入新单元格失败时写进当前选中的空单元格并运行  [没法新建单元格，已写入当前选中的空单元格并开始运行（current-empty-cell+monaco-paste；运行：execute-button）]
+PASS [diag] 诊断信息包含所有 frame（外层页面、notebook-ide、extensionHost），标出适配器和关键选择器数量  [{"tool": "Notebook AI Copilot", "version": "0.1.4", "at": "2026-11-12T10:29:03.329Z", "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/158.0.0.0 Safari/537.36", "tabUrl": "http://modelscope.test:8771/code/workspace", "target": {"frameId": 81, "platform": "M]
 PASS [diag] ModelScope 列出候选动作按钮（tag/class/aria-label/title/文字）  [[{"tag": "a", "cls": "action-label codicon codicon-add", "aria": "Add Markdown Cell", "title": "", "text": "+", "visible": true}, {"tag": "a", "cls": "notebook-label", "aria": "", "title": "", "text": "Markdown", "visible": true}, {"tag": "a", "cls": "action-label codicon codicon-notebook-execute-all", "aria": "Run All", "title": "", "text": "▷", "visible": true}]]
 PASS [diag] 诊断信息不含代码、输出和 API Key
-PASS [diag] 点按钮后提示已复制到剪贴板（或显示在框里手动复制）  [诊断信息已复制到剪贴板（3 个 frame，6933 字），直接粘贴发给开发者即可。不含代码、输出和 API Key。]
+PASS [diag] 点按钮后提示已复制到剪贴板（或显示在框里手动复制）  [诊断信息已复制到剪贴板（3 个 frame，7902 字），直接粘贴发给开发者即可。不含代码、输出和 API Key。]
 PASS [ms] Code Editor 里没打开 .ipynb 时提示新建/打开 Notebook  [ModelScope Code Editor 里还没打开 Notebook：请打开或新建一个 .ipynb 文件（File → New File… → Jupyter Notebook）]
 PASS [ms] 在“我的 Notebook”列表页提示先启动实例并点「查看」  [请先启动 Notebook 实例，再点「查看 / View」打开 Code Editor]
 
 === 安睿云 JupyterLab（/instances/<id>/lab，顶层页面） ===
 PASS [anrui] /instances/<id>/lab 启动器页面：提示打开或新建 Notebook  [安睿云 JupyterLab 已打开，但当前没有打开 Notebook：请在左侧文件浏览器里双击一个 .ipynb，或在启动器里新建 Notebook（Python 3）]
+PASS [anrui] 从页面顶栏认出 AMD 显卡，状态栏显示「硬件：AMD GPU（ROCm）」  [硬件：AMD GPU（ROCm） 48 GB 显存 · 页面提示]
 PASS [anrui] 识别为「安睿云 JupyterLab」，顶层页面，走 JupyterLab 模型  [已连接：安睿云 JupyterLab（jupyterlab，JupyterLab 模型，主页面）]
 PASS [anrui] 页面没有暴露 window.jupyterapp
 PASS [anrui] 读到当前单元格代码和报错
 PASS [anrui] 系统提示带平台名和清华镜像（国内云）  [你是运行在 安睿云 JupyterLab Notebook 里的编程助手。
 规则：
 1. 只输出一个可以直接运行的 Python 代码单元格，放在唯一一个 ``]
+PASS [anrui] 系统提示按 AMD ROCm 写：仍用 cuda 设备、rocm-smi、ROCm 轮子、不装 CUDA 专用包  [ash-attn、xformers 的 CUDA 轮子、cupy-cuda*、onnxruntime-gpu、nvidia-* 等），需要时选 ROCm/CPU 替代方案；已有能用的 torch 就不要重装；确实要装时用 ROCm 轮子：%pip install torch torchvision --index-url https://download.pytorch.org/whl/rocm6.x（把 6.x 换成和系统 ROCm 一致的版本，例如 rocm6.2），不要用默认的 CUDA 版。用到 GPU 的代码开头打印 torch.cuda.get_device_name(0) 确认。]
 PASS [anrui] 插入新单元格（直接写 JupyterLab 模型）  [已插入到新单元格（jupyterlab-model(listener-hook)），检查无误后在 Notebook 里运行]
 PASS [anrui] 运行前要确认
-PASS [anrui] 确认后插入并运行，输出 NBAC_OK 42 True  [已插入新单元格并开始运行（jupyterlab-model(listener-hook)）]
-PASS [anrui] 修复报错后运行成功（NBAC_FIXED 1.0）  [已插入新单元格并开始运行（jupyterlab-model(listener-hook)）]
+PASS [anrui] 确认后插入并运行，输出 NBAC_OK 42 True  [已插入新单元格并开始运行（jupyterlab-model(listener-hook)；运行：jupyterlab-model）]
+PASS [anrui] 修复报错后运行成功（NBAC_FIXED 1.0）  [已插入新单元格并开始运行（jupyterlab-model(listener-hook)；运行：jupyterlab-model）]
+PASS [anrui] 检测硬件：给出只读的检测代码（打印 NBAC_HW，不安装东西）
+PASS [anrui] 检测硬件也要先确认才运行
+PASS [anrui] 检测硬件：运行后自动读回结果并保存（本机：仅 CPU · 已检测）  [已插入并运行检测代码。硬件：仅 CPU · 已检测（之后生成的代码会按这个硬件来写） | 硬件：仅 CPU · 已检测]
+PASS [anrui] 重新检测后仍用保存的检测结果（优先于页面提示）  [硬件：仅 CPU · 已检测]
+PASS [anrui] 检测结果用到之后的提示词里（只有 CPU）  [简短中文注释。
+5. 如果用户给了报错信息，输出修好后的完整单元格，而不是只给片段。
+6. 不要编造路径；不确定的路径用变量写在开头，方便用户修改。
+7. 运行环境：没有可用的 GPU，只有 CPU：用 device="cpu"，训练时调小数据量 / batch / epoch，不要安装 CUDA 版的包。环境里还没有 torch，需要时先 %pip install torch（CPU 版即可）。]
+PASS [anrui] 贴回 NBAC_HW 输出也能记录硬件（AMD W7900 · 已检测）  [硬件：AMD GPU（ROCm） AMD Radeon PRO W7900，48 GB 显存 · 已检测]
+PASS [anrui] 之后的提示词按 AMD W7900 写  [要重装；确实要装时用 ROCm 轮子：%pip install torch torchvision --index-url https://download.pytorch.org/whl/rocm6.x（把 6.x 换成和系统 ROCm 一致的版本，例如 rocm6.2），不要用默认的 CUDA 版。用到 GPU 的代码开头打印 torch.cuda.get_device_name(0) 确认。]
+
+=== 自建 JupyterLab（侧边栏主动注入脚本 / 申请网站权限） ===
+PASS [selfhosted] 网页上没有自动加载内容脚本（不在匹配列表里）
+PASS [selfhosted] 侧边栏主动注入脚本后连上 JupyterLab  [已连接：Jupyter（jupyterlab，JupyterLab 模型，主页面）]
+PASS [selfhosted] 提示“已经手动加载”  [这个网页没有自动加载助手，已经在当前网页里手动加载好了（刷新网页后会自动重新加载）。]
+PASS [selfhosted] 没有显示权限按钮
+PASS [selfhosted] 注入后插入并运行成功  [已插入新单元格并开始运行（jupyterlab-model(share-scope:default:4.6.6)；运行：jupyterlab-model）]
+PASS [selfhosted] 授权后登记了这个网站的内容脚本（early / page / bridge）  [['nbac-http_selfhosted_test_-early:http://selfhosted.test/*', 'nbac-http_selfhosted_test_-page:http://selfhosted.test/*', 'nbac-http_selfhosted_test_-bridge:http://selfhosted.test/*']]
+PASS [selfhosted] 刷新后脚本自动加载（document_start 的 early.js 也在）
+PASS [selfhosted] 刷新后直接连上（不用再注入），走 JupyterLab 模型  [已连接：Jupyter（jupyterlab，JupyterLab 模型，主页面）]
+PASS [noperm] 没有权限：状态说明需要权限，并显示「在此网站启用助手」  [助手还没有访问这个网站的权限，所以读不到 Notebook | 点下面的按钮，Chrome 会询问是否允许助手访问 http://noperm.test（只申请这一个网站）]
+PASS [noperm] 状态不再误报“不是 Notebook 页面”  [助手还没有访问这个网站的权限，所以读不到 Notebook]
+PASS [noperm] 诊断信息里有注入失败原因和权限信息  [{"at": "2026-11-12T10:29:36.918Z", "ok": false, "error": "Cannot access contents of url \"http://noperm.test:8903/instances/rgapi-one-click-test-0001/lab/tree/test.ipynb\". Extension manifest must req]
 
 === 截图 ===
 PASS [demo] 截图用的运行也成功
 
-136/136 checks passed
-EXIT 0
+158/158 checks passed
+exit 0

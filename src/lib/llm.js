@@ -1,5 +1,6 @@
 // 模型调用、模型列表、思考强度映射。
 // API Key 只从 chrome.storage.local 读取，不写日志、不同步。
+import { hardwareRule } from './hardware.js';
 
 // ---------- 服务商预设 ----------
 export const PRESETS = {
@@ -122,7 +123,7 @@ export function thinkingParams(providerId, model, level) {
 }
 
 // ---------- 提示词 ----------
-export function systemPrompt(platform) {
+export function systemPrompt(platform, hardware) {
   const china = /AI Studio|ModelScope|安睿云/.test(platform || '');
   return [
     `你是运行在 ${platform || 'Jupyter'} Notebook 里的编程助手。`,
@@ -134,7 +135,8 @@ export function systemPrompt(platform) {
       : '3. 这是海外平台，正常使用 PyPI 即可。',
     '4. 代码要完整、可重复运行（已存在的文件/目录要能跳过），关键步骤用简短中文注释。',
     '5. 如果用户给了报错信息，输出修好后的完整单元格，而不是只给片段。',
-    '6. 不要编造路径；不确定的路径用变量写在开头，方便用户修改。'
+    '6. 不要编造路径；不确定的路径用变量写在开头，方便用户修改。',
+    hardwareRule(hardware)
   ].join('\n');
 }
 
@@ -203,14 +205,14 @@ export async function listModels(providerId, cfg) {
 
 // ---------- 生成 ----------
 // history: [{role:'user'|'assistant', content}]
-export async function generate(settings, { platform, userMessage, history = [], signal }) {
+export async function generate(settings, { platform, hardware, userMessage, history = [], signal }) {
   const id = settings.active;
   const p = PRESETS[id];
   const cfg = settings.providers[id];
   const model = cfg.model;
   if (!cfg.apiKey) throw new Error(`请先在设置里填写「${p.label}」的 API Key`);
   if (!model) throw new Error('请先选择或输入模型 ID');
-  const sys = systemPrompt(platform);
+  const sys = systemPrompt(platform, hardware);
   const think = thinkingParams(id, model, settings.thinking);
   const temperature = Number(settings.temperature) || 0.2;
 

@@ -23,6 +23,11 @@
   </header>
 
   <div id="status" class="status">正在检测当前页面的 Notebook…</div>
+  <div id="hw" class="hw" hidden></div>
+  <div id="siteAccess" class="site-access" hidden>
+    <button class="act primary" id="enableSite">在此网站启用助手</button>
+    <div class="site-hint" id="siteHint"></div>
+  </div>
 
   <main id="chat" class="chat">
     <section id="welcome" class="welcome">
@@ -70,6 +75,7 @@
     <div id="plusMenu" class="menu" hidden>
       <label class="menu-item"><input type="checkbox" id="includeContext" /> 附带当前单元格代码和最近的报错</label>
       <button class="menu-item" id="fixError">修复当前报错</button>
+      <button class="menu-item" id="probeHw">检测硬件（GPU / CPU）</button>
       <button class="menu-item" id="refresh">重新检测 Notebook</button>
       <button class="menu-item" id="diagnose">复制诊断信息</button>
     </div>

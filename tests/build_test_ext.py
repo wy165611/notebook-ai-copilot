@@ -17,7 +17,9 @@ def main():
     extra = ['http://127.0.0.1/*', 'http://localhost/*', 'http://*.kaggle.test/*', 'http://*.kagglenet.test/*', 'http://aistudio.baidu.test/*', 'http://modelscope.test/*', 'http://*.anruicloud.test/*']
     for cs in m['content_scripts']:
         cs['matches'] += extra
-    m['host_permissions'] += extra
+    # selfhosted.test：只给主机权限、不在内容脚本匹配列表里（仿“自建 JupyterLab”，测侧边栏主动注入）
+    # noperm.test：什么都没有（测“在此网站启用助手”按钮）
+    m['host_permissions'] += extra + ['http://selfhosted.test/*']
     m['permissions'].append('tabs')
     m['name'] += ' (TEST BUILD)'
     (OUT / 'manifest.json').write_text(json.dumps(m, ensure_ascii=False, indent=2))

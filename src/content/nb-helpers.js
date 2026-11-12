@@ -47,5 +47,44 @@
     return 'Jupyter';
   }
 
-  root.__nbacHelpers = { normCode, codeMatches, joinViewLines, vscodeKernelHint, platformFromHost };
+  // 从页面上的文字（平台顶栏、实例规格、加速器选择等）和网址里猜硬件。
+  // 只是提示：真正的硬件以“检测硬件”单元格的运行结果为准。返回 {vendor: 'amd'|'nvidia'|'cpu'|'gpu', model, vramGB, source, evidence} 或 null
+  function parseHardwareHints({ text, url }) {
+    const t = String(text || '').replace(/\s+/g, ' ').slice(0, 30000);
+    let u = null;
+    try { u = new URL(url); } catch { /* ignore */ }
+    const amdRe = /\bAMD\b|Radeon|\bROCm\b|\bInstinct\b|\bMI(?:50|60|100|210|250X?|300[AX]?|325X|350X?)\b/gi;
+    const nvStrong = /NVIDIA|GeForce|\bRTX\s?\d{3,4}\b|\bTesla\b|\b(?:A100|A800|H100|H800|H200|V100|P100|A6000|RTX\s?A\d{4}|L40S?)\b/gi;
+    const nvWeak = /GPU\s*[:：]?\s*(?:Tesla\s+)?(T4|L4|A10G?|A30|L20|H20|P40|K80)\b/gi;
+    const amdHits = t.match(amdRe) || [];
+    const nvHits = (t.match(nvStrong) || []).concat(t.match(nvWeak) || []);
+    let vendor = null;
+    if (amdHits.length && amdHits.length >= nvHits.length) vendor = 'amd';
+    else if (nvHits.length) vendor = 'nvidia';
+    let model = '';
+    if (vendor === 'amd') {
+      const m = t.match(/\b(Radeon\s+(?:PRO\s+|RX\s+|VII\b)?[A-Z]?\d{3,4}\s?(?:XTX|XT|GRE|X)?|Instinct\s+MI\d{2,3}[A-Z]?|MI(?:50|60|100|210|250X?|300[AX]?|325X|350X?))\b/i);
+      if (m) model = m[1].trim();
+    } else if (vendor === 'nvidia') {
+      const m = t.match(/\b((?:GeForce\s+)?RTX\s?A?\d{3,4}(?:\s?Ti)?|Tesla\s+[A-Z]\d{1,3}|A100|A800|H100|H800|H200|V100|P100|A6000|L40S?)\b/i) ||
+        t.match(/GPU\s*[:：]?\s*(?:Tesla\s+)?(T4|L4|A10G?|A30|L20|H20|P40|K80)\b/i);
+      if (m) model = m[1].trim();
+      const x = t.match(/GPU\s*[:：]?\s*(?:Tesla\s+)?(?:T4|P100|V100|A100|L4)\s*[x×*]\s*(\d)/i);
+      if (x && model) model += ' ×' + x[1];
+    }
+    let vramGB = null;
+    const v = t.match(/(?:VRAM|显存)\s*[:：]?\s*(?:[\d.]+\s*(?:GB|GiB|G)?\s*\/\s*)?([\d.]+)\s*(?:GB|GiB|G)\b/i) ||
+      t.match(/([\d.]+)\s*(?:GB|GiB|G)\s*(?:VRAM|显存)/i);
+    if (v) vramGB = parseFloat(v[1]);
+    if (vendor) return { vendor, model, vramGB, source: 'page', evidence: (vendor === 'amd' ? amdHits : nvHits).slice(0, 3).join(', ') };
+    // 网址里的加速器类型（ModelScope：acceleratorType=CPU / GPU）
+    const acc = u && (u.searchParams.get('acceleratorType') || u.searchParams.get('accelerator'));
+    if (acc && /^cpu$/i.test(acc)) return { vendor: 'cpu', model: '', vramGB: null, source: 'url', evidence: 'acceleratorType=' + acc };
+    if (acc && /gpu/i.test(acc)) return { vendor: 'nvidia', model: '', vramGB: null, source: 'url', evidence: 'acceleratorType=' + acc };
+    // 只看到“GPU / 显存”字样，没有厂商
+    if (/\bGPU\b/.test(t) && /VRAM|显存/i.test(t)) return { vendor: 'gpu', model: '', vramGB, source: 'page', evidence: 'GPU/VRAM' };
+    return null;
+  }
+
+  root.__nbacHelpers = { normCode, codeMatches, joinViewLines, vscodeKernelHint, platformFromHost, parseHardwareHints };
 })();

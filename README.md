@@ -12,12 +12,14 @@
 
 - 对话式侧边栏（中文界面）：欢迎页带常用建议，例如“配置 YOLO11 训练环境”“写 YOLO11m 训练代码”“修复当前报错”。
 - 每段代码下面有 **复制 / 插入到新单元格 / 插入并运行**（运行前要确认），代码可以先在框里改。
-- 输入框左下角 **“+”**：开关“附带当前单元格代码和最近的报错”、修复当前报错、重新检测 Notebook。
+- 输入框左下角 **“+”**：开关“附带当前单元格代码和最近的报错”、修复当前报错、**检测硬件**、重新检测 Notebook、复制诊断信息。
+- **自动识别硬件**（0.1.4）：顶部状态下面显示「硬件：…」，例如安睿云页面顶栏写着 “AMD Radeon Cloud” 时显示「硬件：AMD GPU（ROCm）· 页面提示」。生成代码时按硬件写：AMD 用 ROCm（仍是 `cuda` 设备接口、用 `rocm-smi`、不装只支持 CUDA 的包）；硬件未知时让代码先做设备检测。详见下文“硬件识别”。
+- **不在列表里的网站也能用**（0.1.4）：自建 JupyterLab 等网站，侧边栏会提示「在此网站启用助手」，点一下、在 Chrome 弹窗里允许即可。
 - **思考强度**（调节图标）：默认 / 关闭 / 低 / 中 / 高 / 最高，按模型换成真实参数，当前模型不支持的档位会变灰。
 - 输入框右下角 **模型切换**：选服务商，并用你的 Key 拉取模型列表（会缓存，可“刷新列表”），拉取失败时可以直接输入模型 ID。
 - 记住上次选的服务商、模型和思考强度。
 - 多个服务商的 Key 可以同时保存，在侧边栏里随时切换。
-- 系统提示要求：只输出一个可运行的 Python 单元格，用 `%pip`；国内平台（AI Studio / ModelScope）安装时加清华镜像 `-i https://pypi.tuna.tsinghua.edu.cn/simple`，Hugging Face 用 `hf-mirror.com`。
+- 系统提示要求：只输出一个可运行的 Python 单元格，用 `%pip`；国内平台（AI Studio / ModelScope / 安睿云）安装时加清华镜像 `-i https://pypi.tuna.tsinghua.edu.cn/simple`，Hugging Face 用 `hf-mirror.com`。
 - 纯 JS，无需构建；扩展从不 `eval` 模型输出，只把文本放进单元格。
 
 ## 安装（自己用，免费，不用上架）
@@ -28,6 +30,20 @@
 4. 点工具栏上的扩展图标（可先点拼图图标把它固定）打开侧边栏，点右上角 **⋮** 打开设置，填 API Key 并保存。
 
 Chrome 偶尔会提示“停用开发者模式扩展”，点关闭即可。
+
+**从旧版本升级**：把新代码覆盖到原来的文件夹，在 `chrome://extensions` 里点这个扩展的 **刷新（⟳）** 按钮，然后**把已经打开的 Notebook 网页都刷新一次**。
+
+### 权限说明
+
+| 权限 | 用途 |
+|---|---|
+| `sidePanel`、`storage` | 侧边栏；在本机保存设置和 API Key |
+| `scripting` | 网页上没有自动加载助手脚本时（扩展刚更新、网站不在默认列表里），侧边栏用它把同一套脚本注入当前网页 |
+| `activeTab` | 你点工具栏上的扩展图标时，临时允许助手访问当前这个网页 |
+| 主机权限：百炼 / DeepSeek / Gemini 接口，以及 AI Studio、ModelScope、Kaggle、安睿云（`*.anruicloud.com`）的网址 | 调模型接口；在这些平台的 Notebook 里读单元格、插入和运行 |
+| 可选主机权限 `https://*/*`、`http://*/*` | **安装时不申请**。只有你在侧边栏点「在此网站启用助手」（或保存自定义接口地址）时，Chrome 才会弹窗只申请那一个网站 |
+
+`scripting`、`activeTab` 不会触发新的权限警告；新增的主机权限和原来内容脚本匹配的网址相同，所以从 0.1.3 升级时 Chrome 不会因为权限变化停用扩展（开发者模式下加载的扩展本来也不会）。
 
 ## 服务商和模型
 
@@ -106,6 +122,18 @@ Chrome 偶尔会提示“停用开发者模式扩展”，点关闭即可。
 - 页面没有暴露 `window.jupyterapp`，扩展通过 JupyterLab 单元格模型插入和写代码（见上面 JupyterLab 适配器第 2 条），运行用 `NotebookActions.run` 或工具栏按钮 / Shift+Enter。
 - 这是国内云，系统提示里会让 pip 加清华镜像。
 - 只在本机仿造的同样路径（`/instances/<id>/lab`，真实 JupyterLab 4，不暴露 app）上测过；真实站点需要登录（未登录访问返回 403），**没有在真实安睿云页面上装上扩展跑过**。如果不行，请用“+ → 复制诊断信息”。
+
+**其他网站 / 自建 JupyterLab**：
+- 打开 Notebook 后打开侧边栏。如果网站不在上表里，侧边栏会说“助手还没有访问这个网站的权限”，并显示 **「在此网站启用助手」** 按钮：点它，Chrome 会弹窗询问是否允许访问这个网站（只申请这一个域名），允许后立即生效，以后打开这个网站会自动加载。
+- 已有权限但网页没加载助手脚本时（比如扩展刚更新、网页没刷新），侧边栏会自动把脚本注入当前网页，并提示“已经在当前网页里手动加载好了”。
+- 如果 Chrome 由公司/学校管理，并且组织策略禁止扩展访问这个网站，侧边栏会直接说明“组织策略禁止扩展在这个网站上运行”，并附上 Chrome 的原始报错（“复制诊断信息”里也有）。这种情况扩展自己没法绕过，需要管理员放行，或换一个不受管理的 Chrome 用户资料。
+
+### 硬件识别（AMD / NVIDIA / CPU）
+
+- **页面提示**：检测 Notebook 时顺便读平台页面上的非 Notebook 文字（顶栏、实例规格；不读单元格代码和输出），认出 “AMD Radeon Cloud”、Radeon/Instinct/MI300、NVIDIA/Tesla/A100/V100/“GPU T4 x2”/P100 等字样和显存；ModelScope 网址里的 `acceleratorType=CPU/GPU` 也会用上。
+- **检测硬件**：点 **+ → 检测硬件（GPU / CPU）**，侧边栏给出一段只读的检测代码（看 PyTorch 能不能用 GPU、`torch.version.hip` 还是 `torch.version.cuda`、显卡型号和显存；没有 torch 时看 `rocm-smi` / `nvidia-smi`，不安装任何东西），照常 **插入并运行 → 确认运行**，运行完会自动读回输出里 `NBAC_HW {…}` 那一行并保存（按网页地址保存 12 小时）。输出读不到的平台（ModelScope Code Editor）把那一行复制到输入框发送即可。
+- 优先级：检测结果 > 页面提示 > 网址推断。顶部状态下面会显示「硬件：AMD GPU（ROCm）· 页面提示」「硬件：仅 CPU · 已检测」这样的文字。
+- 给模型的规则：**AMD** → 用 ROCm 版 PyTorch，它仍用 `torch.cuda` / `device="cuda"`；看显卡用 `rocm-smi`；不要装 bitsandbytes 的 CUDA 版、flash-attn 等只支持 CUDA 的包；已有能用的 torch 就别重装，必须装时用 `https://download.pytorch.org/whl/rocm6.x`。**NVIDIA** → CUDA。**只有 CPU** → `device="cpu"` 并调小规模。**未知** → 代码开头先做设备检测（`torch.cuda.is_available()`、`torch.version.hip`、`torch.version.cuda`、设备名，没有 GPU 就用 CPU）。
 
 **Kaggle**（2026-11 对照真实已登录 Kaggle Notebook 的 DOM 结构核对过）：
 - 顶层 `www.kaggle.com` 是 Kaggle 自己的 React/MUI 页面（工具栏有 Add cell、Run current cell、Run All 等），**没有单元格**；

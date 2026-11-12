@@ -2,6 +2,8 @@ import {
   PRESETS, PROVIDER_IDS, THINKING_LEVELS, loadSettings, saveSettings, updateProvider,
   supportedThinking, listModels, generate, buildUserMessage, extractCode
 } from '../lib/llm.js';
+import { PROBE_CODE, parseProbeOutput, mergeHardware, hardwareLabel } from '../lib/hardware.js';
+import { MAIN_SCRIPTS, ISOLATED_SCRIPTS, classifyInjectError, originPattern, isInternalUrl } from '../lib/inject.js';
 
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -57,38 +59,158 @@ function pickReport(reports) {
   return ok[0] || null;
 }
 
-async function detect(attempt = 0) {
+// ---------- 没有内容脚本时主动注入 ----------
+// 网站不在 manifest 的匹配列表里（自建 JupyterLab 等）、扩展更新后网页没刷新、或者浏览器没给内容脚本时，
+// 用 chrome.scripting 把同一套脚本注入到所有 frame（脚本本身有 window 标记，重复注入不会出问题）
+const injectState = new Map(); // tabId -> {ok, error, kind, at}
+let siteAccessOrigins = null;  // 「在此网站启用助手」要申请的权限
+
+async function injectInto(tabId) {
+  const res = { at: new Date().toISOString() };
+  try {
+    await chrome.scripting.executeScript({ target: { tabId, allFrames: true }, files: MAIN_SCRIPTS, world: 'MAIN', injectImmediately: true });
+    await chrome.scripting.executeScript({ target: { tabId, allFrames: true }, files: ISOLATED_SCRIPTS, injectImmediately: true });
+    res.ok = true;
+  } catch (e) {
+    res.ok = false; res.error = String(e && e.message || e).slice(0, 300);
+  }
+  injectState.set(tabId, res);
+  return res;
+}
+
+async function tabUrlOf(tabId) {
+  try { return (await chrome.tabs.get(tabId)).url || ''; } catch { return ''; } // 没有 tabs 权限时 url 可能是空的
+}
+
+function showSiteAccess(show, hint, origins) {
+  $('siteAccess').hidden = !show;
+  siteAccessOrigins = origins || null;
+  $('siteHint').textContent = hint || '';
+  $('enableSite').textContent = origins && origins.length === 1 ? '在此网站启用助手' : '在此网站启用助手（允许访问所有网站）';
+}
+
+// 已保存的“检测硬件”结果：按顶层网页地址（不含参数）保存 12 小时
+const HW_KEY = 'nbacHardware';
+let pageHw = null; // 当前连接的硬件（合并后）
+let hwKey = null;
+function hwKeyFor(reports) {
+  const top = reports.find((r) => r.top) || reports[0];
+  try { const u = new URL(top.url); return u.origin + u.pathname; } catch { return null; }
+}
+async function savedProbe(key) {
+  if (!key) return null;
+  const all = (await chrome.storage.local.get(HW_KEY))[HW_KEY] || {};
+  const v = all[key];
+  return v && Date.now() - v.at < 12 * 3600 * 1000 ? v.hw : null;
+}
+async function saveProbe(key, hw) {
+  if (!key) return;
+  const all = (await chrome.storage.local.get(HW_KEY))[HW_KEY] || {};
+  all[key] = { hw, at: Date.now() };
+  for (const k of Object.keys(all)) if (Date.now() - all[k].at > 7 * 24 * 3600 * 1000) delete all[k];
+  await chrome.storage.local.set({ [HW_KEY]: all });
+}
+function showHw(hw) {
+  const e = $('hw');
+  if (!target) { e.hidden = true; return; }
+  e.hidden = false;
+  e.textContent = '硬件：' + hardwareLabel(hw);
+  e.title = hw && hw.evidence ? '依据：' + hw.evidence : (hw && hw.source === 'probe' ? '来自“检测硬件”单元格的输出' : '“+ → 检测硬件”可以在 Notebook 里运行一段只读的检测代码');
+}
+
+async function detect(attempt = 0, opts = {}) {
   clearTimeout(detectRetry);
   target = null;
   if (!attempt) setStatus('正在检测当前页面的 Notebook…');
   const tabId = await activeTabId();
   if (!tabId) { setStatus('没有找到当前标签页', 'bad'); return null; }
-  const reports = await collectReports(tabId);
-  const best = pickReport(reports);
+  let reports = await collectReports(tabId);
+  let best = pickReport(reports);
+  const tabUrl = await tabUrlOf(tabId);
+  let injected = null;
+  // 没有任何 frame 回报（或没有 Notebook）：注入脚本后再检测一次。每轮检测只在第 0 / 4 次尝试时注入
+  if (!best && !isInternalUrl(tabUrl) && (attempt === 0 || attempt === 4 || opts.forceInject)) {
+    injected = await injectInto(tabId);
+    if (injected.ok) {
+      await new Promise((r) => setTimeout(r, 300));
+      reports = await collectReports(tabId);
+      best = pickReport(reports);
+    }
+  }
   if (best) {
+    showSiteAccess(false);
     target = { tabId, frameId: best.frameId, platform: best.platform, kind: best.kind };
     const where = best.top ? '主页面' : '内嵌 frame';
     setStatus(`已连接：${best.platform}（${best.kind}${best.viaApp ? '，JupyterLab API' : best.viaModel ? '，JupyterLab 模型' : ''}，${where}）`, 'ok');
+    hwKey = hwKeyFor(reports);
+    pageHw = mergeHardware(await savedProbe(hwKey), reports.map((r) => r.hw));
+    target.hardware = pageHw;
+    showHw(pageHw);
     if (best.notice) showNotice(best.notice);
+    else if (injected && injected.ok) showNotice('这个网页没有自动加载助手，已经在当前网页里手动加载好了（刷新网页后会自动重新加载）。');
     else if (best.kind === 'vscode-notebook' && /内核/.test($('notice').textContent)) showNotice('');
     $('status').title = reports.map((r) => `frame ${r.frameId}${r.top ? '(top)' : ''}: ${r.detected ? r.kind + ' ' + r.cellCount + ' 个单元格' : '不是 Notebook'}  ${String(r.url).split('?')[0]}`).join('\n');
     return target;
   }
+  showHw(null);
   const hint = reports.find((r) => r.hint);
-  let tabUrl = '';
-  try { tabUrl = (await chrome.tabs.get(tabId)).url || ''; } catch { /* ignore */ }
-  const noScript = !reports.length;
-  const msg = hint ? hint.hint
-    : noScript && /^https?:/.test(tabUrl)
-      ? '这个网页还没加载助手脚本：请刷新这个网页（扩展重新加载或更新后，已打开的网页都要刷新一次），再打开一个 .ipynb'
-      : noScript
-        ? '当前标签页不是 Notebook 页面：请切换到 AI Studio / ModelScope / Kaggle / 安睿云 JupyterLab 的 Notebook 标签页'
-        : '没有检测到 Notebook：打开 AI Studio / ModelScope / Kaggle / 安睿云 JupyterLab 的 Notebook，加载完后点“+ → 重新检测”';
+  const inj = injectState.get(tabId);
+  const kind = inj && !inj.ok ? classifyInjectError(inj.error, tabUrl) : null;
+  let msg;
+  let stop = false;
+  showSiteAccess(false);
+  if (hint) msg = hint.hint;
+  else if (isInternalUrl(tabUrl) || kind === 'restricted') {
+    msg = '当前标签页是浏览器内部页面（chrome:// 设置页、扩展商店等），扩展不能在这里运行：请切换到 Notebook 网页的标签页';
+  } else if (kind === 'policy') {
+    msg = '这个浏览器由组织管理，组织策略禁止扩展在这个网站上运行（Chrome 报错：' + inj.error + '）。请联系管理员把这个网站加入允许列表，或换一个不受管理的 Chrome 用户资料';
+    stop = true;
+  } else if (kind === 'permission') {
+    const pat = originPattern(tabUrl);
+    msg = '助手还没有访问这个网站的权限，所以读不到 Notebook';
+    showSiteAccess(true, pat
+      ? '点下面的按钮，Chrome 会询问是否允许助手访问 ' + pat.replace('/*', '') + '（只申请这一个网站）'
+      : '也可以先点一下浏览器工具栏里的助手图标（临时允许当前网页），再点「+ → 重新检测」', pat ? [pat] : ['https://*/*', 'http://*/*']);
+    stop = true;
+  } else if (!reports.length) {
+    msg = inj && inj.ok
+      ? '助手脚本已加载，但页面没有响应：请刷新这个网页再试'
+      : '这个网页还没加载助手脚本：请刷新这个网页（扩展重新加载或更新后，已打开的网页都要刷新一次），再打开一个 .ipynb';
+  } else msg = '没有检测到 Notebook：打开 AI Studio / ModelScope / Kaggle / 安睿云 JupyterLab 的 Notebook，加载完后点“+ → 重新检测”';
   setStatus(msg, 'bad');
-  $('status').title = reports.map((r) => `frame ${r.frameId}: 不是 Notebook  ${String(r.url).split('?')[0]}`).join('\n');
+  $('status').title = reports.map((r) => `frame ${r.frameId}: 不是 Notebook  ${String(r.url).split('?')[0]}`).join('\n') + (inj && !inj.ok ? '\n注入失败：' + inj.error : '');
   // Notebook（尤其是 Kaggle 的 iframe）常常比页面晚加载：自动重试一会儿
-  if (attempt < 20) detectRetry = setTimeout(() => detect(attempt + 1), 3000);
+  if (!stop && attempt < 20) detectRetry = setTimeout(() => detect(attempt + 1), 3000);
   return null;
+}
+
+// 用户点「在此网站启用助手」：必须在点击事件里直接调用 permissions.request
+async function enableSite(origins, alreadyGranted) {
+  let granted = !!alreadyGranted;
+  if (!granted) {
+    try { granted = await chrome.permissions.request({ origins }); } catch (e) {
+      lastPanelError = { action: 'permissions.request', message: String(e.message || e).slice(0, 300), at: new Date().toISOString() };
+      setStatus('申请权限失败：' + (e.message || e), 'bad'); return false;
+    }
+  }
+  if (!granted) { setStatus('没有获得访问这个网站的权限，助手不能在这里使用', 'bad'); return false; }
+  // 以后打开这个网站时自动加载（和 manifest 里的内容脚本一样）
+  try {
+    const id = 'nbac-' + origins.join(',').replace(/[^a-z0-9]+/gi, '_').slice(0, 60);
+    const ids = [id + '-early', id + '-page', id + '-bridge'];
+    const existing = await chrome.scripting.getRegisteredContentScripts({ ids });
+    if (existing.length) await chrome.scripting.unregisterContentScripts({ ids: existing.map((x) => x.id) });
+    await chrome.scripting.registerContentScripts([
+      { id: ids[0], matches: origins, js: [MAIN_SCRIPTS[0]], world: 'MAIN', allFrames: true, runAt: 'document_start' },
+      { id: ids[1], matches: origins, js: MAIN_SCRIPTS.slice(1), world: 'MAIN', allFrames: true, runAt: 'document_idle' },
+      { id: ids[2], matches: origins, js: ISOLATED_SCRIPTS, allFrames: true, runAt: 'document_idle' }
+    ]);
+  } catch (e) {
+    lastPanelError = { action: 'registerContentScripts', message: String(e.message || e).slice(0, 300), at: new Date().toISOString() };
+  }
+  showSiteAccess(false);
+  await detect(0, { forceInject: true });
+  return !!target;
 }
 
 async function call(action, args) {
@@ -243,11 +365,12 @@ function addThinking() {
   return m;
 }
 
-function renderBot(m, { text, code, meta, error }) {
+function renderBot(m, { text, code, meta, error, onRan, info }) {
   m.className = 'msg bot' + (error ? ' err' : '');
   m.innerHTML = '';
   if (meta) m.appendChild(el('div', 'meta', escapeHtml(meta)));
   if (error) { m.appendChild(el('div', 'text', escapeHtml(error))); return; }
+  if (info) { m.appendChild(el('div', 'text hw-info', escapeHtml(info))); return; }
   const outside = text.replace(/```[\s\S]*?```/g, '').trim();
   if (outside) m.appendChild(el('div', 'text', escapeHtml(outside.slice(0, 600))));
   const block = el('div', 'codeblock');
@@ -288,9 +411,18 @@ function renderBot(m, { text, code, meta, error }) {
       const intoEmpty = /^current-empty-cell/.test(r.via);
       const where = intoEmpty ? '没法新建单元格，已写入当前选中的空单元格' : '已插入新单元格';
       if (andRun) {
-        const rr = await call('runCell', {});
+        let rr;
+        try { rr = await call('runCell', {}); } catch (e) {
+          // 插入成功、运行失败：不要说“插入失败”，告诉用户手动运行
+          const msg = String(e.message || e).replace(/^NBAC_RUN_FAILED:/, '');
+          lastPanelError = { action: 'run', message: msg.slice(0, 300), at: new Date().toISOString() };
+          setResult(`${where}（${r.via}），但没有自动运行：${msg}。请在 Notebook 里点一下这个单元格，按 Shift+Enter 运行`, true);
+          showNotice('自动运行失败。如果一直这样，可以点“+ → 复制诊断信息”发给开发者');
+          return;
+        }
         if (rr && rr.notice) showNotice(rr.notice);
-        setResult(`${where}并开始运行（${r.via}）`);
+        setResult(`${where}并开始运行（${r.via}；运行：${rr && rr.via || '?'}）`);
+        if (onRan) onRan(setResult);
       } else setResult(`${intoEmpty ? where : '已插入到新单元格'}（${r.via}），检查无误后在 Notebook 里运行`);
     } catch (e) {
       // 插入或写入失败：把代码放到剪贴板，让用户手动粘贴；不运行
@@ -316,6 +448,15 @@ async function send(fix) {
   if (busy) return;
   const request = $('prompt').value.trim();
   if (!fix && !request) return;
+  if (!fix && /NBAC_HW\s*\{/.test(request)) { // 用户把“检测硬件”的输出贴回来（输出读不到的平台）
+    const hw = parseProbeOutput(request);
+    addUser(request.slice(0, 300));
+    $('prompt').value = ''; autoGrow();
+    const m = addThinking();
+    if (hw) { await storeProbe(hw); renderBot(m, { error: null, text: '', code: '', info: '已记录硬件：' + hardwareLabel(hw) + '，之后生成的代码会按这个硬件来写' }); }
+    else renderBot(m, { error: '没看懂这行 NBAC_HW 输出，请完整复制那一行' });
+    return;
+  }
   busy = true; $('send').disabled = true; closeMenus(); showNotice('');
   addUser(fix ? '修复当前报错' + (request ? '：' + request : '') : request);
   $('prompt').value = ''; autoGrow();
@@ -339,7 +480,7 @@ async function send(fix) {
       request: fix ? (extraRequest ? '（补充说明）' + extraRequest : '') : request,
       cellCode: useCtx ? ctx.cellCode : '', errorOutput: useCtx ? ctx.errorOutput : '', fix
     });
-    const r = await generate(settings, { platform: ctx.platform || (target && target.platform), userMessage, history: history.slice(-6) });
+    const r = await generate(settings, { platform: ctx.platform || (target && target.platform), hardware: pageHw, userMessage, history: history.slice(-6) });
     const code = extractCode(r.text);
     history.push({ role: 'user', content: userMessage }, { role: 'assistant', content: '```python\n' + code + '```' });
     const lvl = THINKING_LEVELS.find((l) => l.id === settings.thinking);
@@ -355,6 +496,43 @@ async function send(fix) {
 function autoGrow() { const t = $('prompt'); t.style.height = 'auto'; t.style.height = Math.min(160, t.scrollHeight) + 'px'; }
 
 
+// ---------- 检测硬件：插入一段只读的检测代码，确认后运行，再从输出里读 NBAC_HW 那一行 ----------
+async function storeProbe(hw) {
+  pageHw = hw;
+  if (target) target.hardware = hw;
+  await saveProbe(hwKey, hw);
+  showHw(hw);
+}
+
+function probeHardware() {
+  closeMenus();
+  $('welcome').hidden = true;
+  addUser('检测硬件');
+  const m = addThinking();
+  renderBot(m, {
+    text: '这段代码只读取硬件信息（PyTorch 能否用 GPU、是 AMD ROCm 还是 NVIDIA CUDA、显卡型号和显存），不安装任何东西。点「插入并运行」并确认后，我会自动读取结果。',
+    code: PROBE_CODE, meta: '内置 · 检测硬件',
+    onRan: (setResult) => readProbeResult(setResult)
+  });
+}
+
+async function readProbeResult(setResult) {
+  const base = '已插入并运行检测代码';
+  for (let i = 0; i < 45; i++) {
+    await new Promise((r) => setTimeout(r, 2000));
+    let r;
+    try { r = await call('readHardwareProbe', {}); } catch { continue; }
+    const hw = r && r.line ? parseProbeOutput(r.line) : null;
+    if (hw) { await storeProbe(hw); setResult(base + '。硬件：' + hardwareLabel(hw) + '（之后生成的代码会按这个硬件来写）'); return hw; }
+    if (r && r.unreadable && i >= 4) {
+      setResult(base + '。这个平台的输出在单独的安全框里，扩展读不到：请把输出里以 NBAC_HW 开头的那一行复制到输入框发给我');
+      return null;
+    }
+  }
+  setResult(base + '，但 90 秒内没读到结果。运行完后可以把输出里 NBAC_HW 那一行复制到输入框发给我', true);
+  return null;
+}
+
 // ---------- 诊断信息：每个 frame 的结构信息（不含代码、输出和 Key），复制到剪贴板 ----------
 async function copyDiagnostics() {
   closeMenus();
@@ -368,6 +546,9 @@ async function copyDiagnostics() {
     userAgent: navigator.userAgent, tabUrl: tab && tab.url ? tab.url.split(/[?#]/)[0] : null,
     target: target ? { frameId: target.frameId, platform: target.platform, kind: target.kind } : null,
     status: $('status').textContent.slice(0, 200), lastPanelError,
+    hardware: pageHw, inject: tabId ? injectState.get(tabId) || null : null,
+    permissions: await chrome.permissions.getAll().then((p) => ({ permissions: p.permissions, origins: p.origins })).catch((e) => String(e)),
+    registeredScripts: await chrome.scripting.getRegisteredContentScripts().then((l) => l.map((x) => ({ id: x.id, matches: x.matches }))).catch(() => null),
     frames: reports.sort((a, b) => a.frameId - b.frameId).map((r) => ({ frameId: r.frameId, ...r.frame }))
   };
   const text = JSON.stringify(data, null, 1);
@@ -406,6 +587,9 @@ $('includeContext').addEventListener('change', async (e) => { await saveSettings
 $('fixError').addEventListener('click', () => send(true));
 $('refresh').addEventListener('click', () => { closeMenus(); detect(); });
 $('diagnose').addEventListener('click', () => { copyDiagnostics(); });
+$('probeHw').addEventListener('click', () => probeHardware());
+$('enableSite').addEventListener('click', () => { if (siteAccessOrigins) enableSite(siteAccessOrigins); });
+if (forcedTabId) window.enableSiteForTest = (origins) => enableSite(origins, true); // 测试用：自动化里没法点 Chrome 的权限弹窗
 if (forcedTabId) window.copyDiagnosticsForTest = copyDiagnostics; // 测试用
 $('providerSelect').addEventListener('change', async (e) => {
   await saveSettings({ active: e.target.value });

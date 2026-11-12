@@ -8,7 +8,7 @@
    检测 Notebook → 读取当前单元格和报错 → 生成代码预览 → 只插入不运行 → “插入并运行”必须先确认 → 运行并看到输出 → “修复报错” → 去掉工具栏后用快捷键兜底 → OpenAI 兼容接口；
 3. Kaggle：`kaggle_top.html` 仿 www.kaggle.com 的顶层页面（结构来自真实已登录 Kaggle 的 DOM 抓取），里面的 `iframe name="notebook-editor-cells"` 来自**另一个站点**，嵌的是本机真实 JupyterLab 4（不暴露 `window.jupyterapp`）。用 Chromium 的 `--host-resolver-rules` 把 `www.kaggle.test`、`kkb-production.jupyter-proxy.kagglenet.test` 指向本机。验证：顶层回报“不是 Notebook”、侧边栏连到 iframe、读代码和报错、插入、确认后运行、修复报错、工具栏隐藏/按钮缺失时的兜底。
 
-测试用的扩展副本由 `build_test_ext.py` 生成到 `/tmp/nbac-test-ext`，只在副本里额外允许 `127.0.0.1/localhost`、`*.kaggle.test`/`*.kagglenet.test`、`aistudio.baidu.test`、`modelscope.test`、`*.anruicloud.test` 和 `tabs` 权限，**发布用的 manifest.json 不变**。
+测试用的扩展副本由 `build_test_ext.py` 生成到 `/tmp/nbac-test-ext`，只在副本里额外允许 `127.0.0.1/localhost`、`*.kaggle.test`/`*.kagglenet.test`、`aistudio.baidu.test`、`modelscope.test`、`*.anruicloud.test`（主机权限另加 `selfhosted.test`，但不加进内容脚本匹配）和 `tabs` 权限，**发布用的 manifest.json 不变**。
 4. 飞桨 AI Studio（BML Codelab）：`aistudio_proxy.py`（aiohttp）在 `aistudio.baidu.test:8770` 上仿真实路径 `/bj-cpu-01/user/123/456/home#codelab` 出一个宿主页，同源嵌 `#vscode-frame`（诱饵，里面还有嵌套 webview iframe）和 `#jupyterlab-frame`，后者经反向代理（含 WebSocket）连到一个 `base_url` 相同、**中文界面**（`jupyterlab-language-pack-zh-CN`）、不暴露全局 app 的真实 JupyterLab 4。验证：只连 `#jupyterlab-frame`、其他 frame 都回报“不是 Notebook”、读代码和报错、清华镜像提示、插入、确认后运行、修复报错、工具栏隐藏/缺失兜底。
    另外 `aistudio_monaco_fixture.html` 照抄真实 AI Studio 的单元格 DOM（中文标题的 `data-command` 单元格工具栏、Monaco 编辑器），用真实 `monaco-editor` 但删掉 `window.monaco`，验证从渲染行读代码、点工具栏插入、粘贴写入 Monaco、Shift+Enter 运行（运行是夹具里假的）。还验证外层项目编辑器 `/project/edit/…` 会提示去「专业开发」。
 
@@ -16,6 +16,10 @@
 
 6. 0.1.1 新增的兜底：普通 JupyterLab（没暴露 app）通过监听器钩子找到 Notebook widget 直接写模型；AI Studio 场景里拦掉所有输入事件、关掉监听器钩子，验证仍能通过 webpack 共享作用域里的 `@jupyterlab/notebook` 写模型；AI Studio Monaco 夹具（旧版 Monaco 的 `textarea.inputarea`）分别测 AMD loader 里的 Monaco API（默认）、只能粘贴（`?noamd=1`）、全都写不进（`?notyping=1`，应复制到剪贴板且不运行，诊断信息里有失败步骤）；ModelScope 夹具测悬停才出现、只响应 mousedown 的 + Code（`?hover=1`）、中文“代码”按钮（`?zh=1`）、没有按钮时按 B（`?nobuttons=1`）、只能写进当前空单元格（`?noinsert=1`），以及“复制诊断信息”（包含所有 frame、候选按钮，不含代码/输出/Key）。fallback 检查里设置 `window.__nbacNoModel = true` 来测 DOM 兜底路径。
 7. 安睿云 JupyterLab：真实 JupyterLab 4 以 `--ServerApp.base_url=/instances/rgapi-one-click-test-0001/`（端口 8903，`allow_remote_access`）启动，域名 `jupyter.anruicloud.test` 指向本机。验证：`/instances/<id>/lab?reset` 启动器页面提示打开 Notebook、打开 `lab/tree/test.ipynb` 后识别为「安睿云 JupyterLab（jupyterlab，JupyterLab 模型，主页面）」、读代码和报错、清华镜像提示、插入（写模型）、确认后运行、修复报错。单元测试覆盖域名识别和 manifest 匹配规则。
+8. 0.1.4：
+   - 安睿云：页面顶栏加上 “AMD Radeon Cloud | GPU | VRAM 0.2/48 GB”，状态显示「硬件：AMD GPU（ROCm）」，发给模型的系统提示里有 ROCm 规则；「+ → 检测硬件」插入只读检测代码、确认后运行、自动读回结果（本机没 torch/GPU → 仅 CPU · 已检测）并用于之后的提示词；把 `NBAC_HW {…}` 贴进输入框也能记录。
+   - ModelScope 夹具：运行时像真实 VS Code 一样把执行序号改成 `[*]`/`[N]`（运行路径和 0.1.3 相同，没有改）。
+   - 自建 JupyterLab：`selfhosted.test`（测试版只给了主机权限、**不在内容脚本匹配列表里**）上打开同一个 JupyterLab，侧边栏用 `chrome.scripting` 注入后连上并能插入运行；模拟授权后（`enableSiteForTest`，跳过 Chrome 权限弹窗）登记动态内容脚本，刷新网页自动加载。`noperm.test`（没有任何权限）显示「在此网站启用助手」按钮，诊断信息里有注入失败原因。
 
 侧边栏在测试里以独立弹窗（`index.html?tabId=…`）打开，界面和真正的侧边栏是同一个页面。
 

@@ -223,7 +223,7 @@ def fallback_checks(tag, target, panel, msg, count_js, done_js):
     # a) 工具栏被 CSS 隐藏：隐藏的按钮仍然可用
     target.add_style_tag(content='.jp-Toolbar { display: none !important; }')
     n = target.eval_on_selector_all('.jp-Notebook .jp-Cell', count_js)
-    k = target.evaluate("() => document.body.innerText.split('NBAC_FIXED 1.0').length")
+    k = target.evaluate(FIXED_COUNT_JS)
     msg.query_selector('.act-run').click()
     r = click_and_wait_result(panel, msg, '.act-confirm')
     ok = True
@@ -235,7 +235,7 @@ def fallback_checks(tag, target, panel, msg, count_js, done_js):
     # b) 页面上根本没有插入/运行按钮：快捷键（frame 有焦点时）或底部“添加单元格”，运行用 Shift+Enter
     target.evaluate(STRIP_BUTTONS_JS)
     n = target.eval_on_selector_all('.jp-Notebook .jp-Cell', count_js)
-    k = target.evaluate("() => document.body.innerText.split('NBAC_FIXED 1.0').length")
+    k = target.evaluate(FIXED_COUNT_JS)
     msg.query_selector('.act-run').click()
     r = click_and_wait_result(panel, msg, '.act-confirm')
     ok = True
@@ -246,13 +246,16 @@ def fallback_checks(tag, target, panel, msg, count_js, done_js):
     check(f'[{tag}] 没有任何按钮时用快捷键/底部添加区插入并用 Shift+Enter 运行', ('keyboard' in r or 'notebook-footer' in r) and target.eval_on_selector_all('.jp-Notebook .jp-Cell', count_js) >= n + 1 and ok, r)
 
 COUNT_JS = 'e => e.length'
+OUT_COUNT_JS = "(t) => [...document.querySelectorAll('.jp-OutputArea-output')].filter(e => e.textContent.includes(t)).length"
 BLOCK_TYPING_JS = """() => {
   window.__nbacBlockTyping = true;
   for (const t of ['paste', 'beforeinput', 'input', 'textInput', 'keydown', 'keypress', 'compositionend']) {
     document.addEventListener(t, (e) => { if (window.__nbacBlockTyping) { e.stopImmediatePropagation(); e.preventDefault(); } }, true);
   }
 }"""
-FIXED_N_JS = "(n) => document.body.innerText.split('NBAC_FIXED 1.0').length > n"
+# 用 textContent 数输出区：JupyterLab 4 的 content-visibility 窗口化会让屏幕外单元格不出现在 innerText 里
+FIXED_COUNT_JS = "() => [...document.querySelectorAll('.jp-OutputArea-output')].filter(e => e.textContent.includes('NBAC_FIXED 1.0')).length"
+FIXED_N_JS = "(n) => (" + FIXED_COUNT_JS + ")() > n"
 
 def menu_levels(panel):
     panel.click('#thinkBtn')
@@ -428,6 +431,7 @@ def test_kaggle(ctx, sw):
     check('[kaggle] 运行前要确认', msg.query_selector('.confirm').is_visible())
     r = click_and_wait_result(panel, msg, '.act-confirm')
     check('[kaggle] 确认后在 iframe 里插入并运行，输出 NBAC_OK 42 True', wait_text(fr, 'NBAC_OK 42 True'), r)
+    check('[kaggle] 运行走 JupyterLab 模型 + 内核会话，并确认真的开始执行了', '运行：jupyterlab-model' in r, r)
 
     cells()[1].click()
     code, _, _ = ask(panel, fix=True)
@@ -644,6 +648,7 @@ def test_modelscope(ctx, sw):
     outs = fr.evaluate("() => window.__fixtureOutputs")
     check('[ms] 确认后插入并用单元格的 Execute Cell 按钮运行（NBAC_OK 42 True）',
           len(outs) == n_out + 1 and outs[-1]['text'] == 'NBAC_OK 42 True' and outs[-1]['index'] == 3, r + ' | ' + json.dumps(outs, ensure_ascii=False)[:200])
+    check('[ms] 运行后新单元格的执行序号变了（夹具仿 VS Code 的 [*]/[N]）', '运行：execute-button' in r and fr.evaluate("() => /\\[\\d+\\]|\\[\\*\\]/.test(document.querySelector('.code-cell-row[data-index=\"3\"] .cell-execution-order').textContent)"), r)
 
     # 把报错贴进输入框再修复
     # 选中出错的单元格（真实页面里输出 webview 可能盖在单元格上，这里直接派发 mousedown + 聚焦编辑器）
@@ -771,14 +776,22 @@ def test_anrui(ctx, sw):
     cells()[1].click(); page.keyboard.press('Shift+Enter')
     page.wait_for_function("() => document.body.innerText.includes('ZeroDivisionError')", timeout=30000)
     cells()[1].click()
+    # 安睿云页面顶部显示 “AMD Radeon Cloud … GPU … VRAM …”（仿真实页面的顶栏）
+    page.evaluate("""() => { const d = document.createElement('div'); d.id = 'anrui-topbar';
+      d.style.cssText = 'position:fixed;top:0;right:0;z-index:9999;background:#222;color:#fff;font:12px sans-serif;padding:2px 8px';
+      d.textContent = 'AMD Radeon Cloud  |  GPU 0%  |  VRAM 0.2/48 GB  |  RAM 3.1/64 GB'; document.body.appendChild(d); }""")
     panel.click('#plusBtn'); panel.click('#refresh')
     status = wait_status_ok(panel)
+    hw = panel.inner_text('#hw')
+    check('[anrui] 从页面顶栏认出 AMD 显卡，状态栏显示「硬件：AMD GPU（ROCm）」', hw.startswith('硬件：AMD GPU（ROCm）') and '48 GB' in hw and '页面提示' in hw, hw)
     check('[anrui] 识别为「安睿云 JupyterLab」，顶层页面，走 JupyterLab 模型', '安睿云 JupyterLab（jupyterlab，JupyterLab 模型，主页面）' in status, status)
     check('[anrui] 页面没有暴露 window.jupyterapp', page.evaluate("() => !window.jupyterapp && !window.jupyterlab"))
     code, _, _ = ask(panel, '读一个 csv 并画图')
     L = last()
     check('[anrui] 读到当前单元格代码和报错', 'y = 1/0' in L.get('user', '') and 'ZeroDivisionError' in L.get('user', ''))
     check('[anrui] 系统提示带平台名和清华镜像（国内云）', 'pypi.tuna.tsinghua.edu.cn' in L.get('system', '') and '安睿云 JupyterLab' in L.get('system', ''), L.get('system', '')[:80])
+    sysp = L.get('system', '')
+    check('[anrui] 系统提示按 AMD ROCm 写：仍用 cuda 设备、rocm-smi、ROCm 轮子、不装 CUDA 专用包', all(x in sysp for x in ['AMD GPU', 'ROCm', '"cuda"', 'rocm-smi', 'download.pytorch.org/whl/rocm6.x', 'bitsandbytes', 'flash-attn', '不要重装']), sysp[-300:])
     msg = last_bot(panel)
     n0 = lab_cell_count(page)
     r = click_and_wait_result(panel, msg, '.act-insert')
@@ -793,7 +806,102 @@ def test_anrui(ctx, sw):
     msg.query_selector('.act-run').click()
     r = click_and_wait_result(panel, msg, '.act-confirm')
     check('[anrui] 修复报错后运行成功（NBAC_FIXED 1.0）', 'NBAC_FIXED' in code and wait_text(page, 'NBAC_FIXED 1.0'), r)
+    # 「+ → 检测硬件」：插入只读检测代码，确认后运行并读回结果（本机没有 torch / GPU → 仅 CPU）
+    n_bots = bot_count(panel)
+    panel.click('#plusBtn'); panel.click('#probeHw')
+    panel.wait_for_function("(n) => document.querySelectorAll('.msg.bot:not(.pending)').length > n", arg=n_bots, timeout=5000)
+    msg = last_bot(panel)
+    probe = msg.query_selector('textarea').input_value()
+    check('[anrui] 检测硬件：给出只读的检测代码（打印 NBAC_HW，不安装东西）', 'NBAC_HW' in probe and 'torch.version' in probe and 'pip install' not in probe)
+    n0 = lab_cell_count(page)
+    msg.query_selector('.act-run').click()
+    check('[anrui] 检测硬件也要先确认才运行', msg.query_selector('.confirm').is_visible() and lab_cell_count(page) == n0)
+    msg.query_selector('.act-confirm').click()
+    ok = True
+    try:
+        panel.wait_for_function("(m) => /硬件：/.test(m.querySelector('.result').textContent)", arg=msg, timeout=60000)
+    except Exception:
+        ok = False
+    res = msg.query_selector('.result').inner_text()
+    hw = panel.inner_text('#hw')
+    check('[anrui] 检测硬件：运行后自动读回结果并保存（本机：仅 CPU · 已检测）', ok and '仅 CPU' in res and hw.startswith('硬件：仅 CPU') and '已检测' in hw, res + ' | ' + hw)
+    panel.click('#plusBtn'); panel.click('#refresh')
+    wait_status_ok(panel)
+    hw = panel.inner_text('#hw')
+    check('[anrui] 重新检测后仍用保存的检测结果（优先于页面提示）', '仅 CPU' in hw and '已检测' in hw, hw)
+    ask(panel, '训练一个小模型')
+    sysp = last().get('system', '')
+    check('[anrui] 检测结果用到之后的提示词里（只有 CPU）', '只有 CPU' in sysp and 'device="cpu"' in sysp, sysp[-200:])
+    # 输出读不到的平台：用户把 NBAC_HW 那一行贴回来
+    panel.fill('#prompt', 'NBAC_HW {"vendor":"amd","devices":[{"name":"AMD Radeon PRO W7900","vram_gb":48.0}],"torch":"2.5.1+rocm6.2","hip_build":"6.2"}')
+    panel.click('#send')
+    panel.wait_for_function("() => document.getElementById('hw').textContent.includes('W7900')", timeout=5000)
+    hw = panel.inner_text('#hw')
+    check('[anrui] 贴回 NBAC_HW 输出也能记录硬件（AMD W7900 · 已检测）', 'AMD GPU（ROCm）' in hw and 'W7900' in hw and '已检测' in hw, hw)
+    ask(panel, '训练一个小模型')
+    sysp = last().get('system', '')
+    check('[anrui] 之后的提示词按 AMD W7900 写', 'AMD GPU（AMD Radeon PRO W7900' in sysp and 'rocm-smi' in sysp, sysp[-200:])
     page.screenshot(path=str(SHOT_DIR / 'anrui-notebook.png'))
+    panel.close(); page.close()
+
+def test_selfhosted(ctx, sw):
+    """网站不在 manifest 的内容脚本匹配列表里（自建 JupyterLab）：侧边栏用 chrome.scripting 主动注入；
+    没有主机权限时显示「在此网站启用助手」；授权后登记动态内容脚本，刷新网页自动加载。
+    selfhosted.test 在测试版的 host_permissions 里（相当于用户已经点过授权），noperm.test 什么权限都没有。"""
+    print('\n=== 自建 JupyterLab（侧边栏主动注入脚本 / 申请网站权限） ===', flush=True)
+    base = 'http://selfhosted.test:8903' + ANRUI_BASE
+    page = ctx.new_page()
+    page.set_viewport_size({'width': 1100, 'height': 900})
+    page.goto(base + 'lab/tree/test.ipynb')
+    page.wait_for_selector('.jp-Notebook .jp-Cell .cm-content', timeout=60000)
+    time.sleep(2)
+    check('[selfhosted] 网页上没有自动加载内容脚本（不在匹配列表里）', page.evaluate("() => !window.__nbacPageLoaded && !window.__nbacEarly"))
+    page.query_selector_all('.jp-Notebook .jp-Cell .cm-content')[0].click()
+    panel = open_panel(ctx, sw, 'http://selfhosted.test:8903/*')
+    set_storage(panel, providers=mock_providers(), active='bailian', thinking='default', includeContext=True)
+    status = wait_status_ok(panel)
+    check('[selfhosted] 侧边栏主动注入脚本后连上 JupyterLab', 'Jupyter（jupyterlab' in status and page.evaluate("() => !!window.__nbacPageLoaded && !!window.__nbacEarly"), status)
+    check('[selfhosted] 提示“已经手动加载”', '手动加载' in panel.inner_text('#notice'), panel.inner_text('#notice'))
+    check('[selfhosted] 没有显示权限按钮', not panel.is_visible('#siteAccess'))
+    code, _, _ = ask(panel, '读一个 csv 并画图')
+    msg = last_bot(panel)
+    k = page.evaluate(OUT_COUNT_JS, 'NBAC_OK 42 True')
+    msg.query_selector('.act-run').click()
+    r = click_and_wait_result(panel, msg, '.act-confirm')
+    ok = True
+    try:
+        page.wait_for_function("([t, n]) => (" + OUT_COUNT_JS + ")(t) > n", arg=['NBAC_OK 42 True', k], timeout=30000)
+    except Exception:
+        ok = False
+    check('[selfhosted] 注入后插入并运行成功', ok and '运行：' in r, r)
+    # 授权后（测试里跳过 Chrome 的弹窗）登记动态内容脚本：刷新网页后自动加载
+    panel.evaluate("() => window.enableSiteForTest(['http://selfhosted.test/*'])")
+    reg = panel.evaluate("async () => (await chrome.scripting.getRegisteredContentScripts()).map(x => x.id + ':' + x.matches.join(','))")
+    check('[selfhosted] 授权后登记了这个网站的内容脚本（early / page / bridge）', len([x for x in reg if 'selfhosted.test' in x]) == 3, reg)
+    page.reload()
+    page.wait_for_selector('.jp-Notebook .jp-Cell .cm-content', timeout=60000)
+    ok = True
+    try:
+        page.wait_for_function("() => !!window.__nbacPageLoaded && !!window.__nbacEarly && !!window.__nbacEarly.listenerObjects", timeout=10000)
+    except Exception:
+        ok = False
+    check('[selfhosted] 刷新后脚本自动加载（document_start 的 early.js 也在）', ok)
+    panel.evaluate("() => { document.getElementById('notice').textContent = ''; }")
+    panel.click('#plusBtn'); panel.click('#refresh')
+    status = wait_status_ok(panel)
+    check('[selfhosted] 刷新后直接连上（不用再注入），走 JupyterLab 模型', 'JupyterLab 模型' in status and '手动加载' not in panel.inner_text('#notice'), status)
+    panel.close()
+    # 没有权限的网站：显示「在此网站启用助手」按钮
+    page.goto('http://noperm.test:8903' + ANRUI_BASE + 'lab/tree/test.ipynb')
+    page.wait_for_selector('.jp-Notebook .jp-Cell .cm-content', timeout=60000)
+    panel = open_panel(ctx, sw, 'http://noperm.test:8903/*')
+    panel.wait_for_selector('#siteAccess:not([hidden])', timeout=15000)
+    st = panel.inner_text('#status')
+    check('[noperm] 没有权限：状态说明需要权限，并显示「在此网站启用助手」', '权限' in st and panel.inner_text('#enableSite') == '在此网站启用助手' and 'http://noperm.test' in panel.inner_text('#siteHint'), st + ' | ' + panel.inner_text('#siteHint'))
+    check('[noperm] 状态不再误报“不是 Notebook 页面”', '不是 Notebook 页面' not in st, st)
+    data = panel.evaluate("() => window.copyDiagnosticsForTest()")
+    inj = data.get('inject') or {}
+    check('[noperm] 诊断信息里有注入失败原因和权限信息', inj.get('ok') is False and 'Cannot access' in (inj.get('error') or '') and 'permissions' in data, json.dumps(inj, ensure_ascii=False)[:200])
     panel.close(); page.close()
 
 def test_options(ctx, sw):
@@ -862,12 +970,12 @@ def main():
                 f'--disable-extensions-except={ext}', f'--load-extension={ext}',
                 '--disable-background-timer-throttling', '--disable-renderer-backgrounding',
                 '--disable-backgrounding-occluded-windows', '--window-size=1100,1000', '--window-position=0,0',
-                '--host-resolver-rules=MAP *.kaggle.test 127.0.0.1, MAP *.kagglenet.test 127.0.0.1, MAP aistudio.baidu.test 127.0.0.1, MAP modelscope.test 127.0.0.1, MAP g.alicdn.test 127.0.0.1, MAP *.anruicloud.test 127.0.0.1'])
+                '--host-resolver-rules=MAP *.kaggle.test 127.0.0.1, MAP *.kagglenet.test 127.0.0.1, MAP aistudio.baidu.test 127.0.0.1, MAP modelscope.test 127.0.0.1, MAP g.alicdn.test 127.0.0.1, MAP *.anruicloud.test 127.0.0.1, MAP selfhosted.test 127.0.0.1, MAP noperm.test 127.0.0.1'])
             sw = ctx.service_workers[0] if ctx.service_workers else ctx.wait_for_event('serviceworker')
             for t in (test_options, test_models_and_thinking,
                       lambda c, s: test_jupyterlab(c, s, 8899, 'dom'),
                       lambda c, s: test_jupyterlab(c, s, 8900, 'app'),
-                      test_kaggle, test_aistudio, test_aistudio_monaco, test_aistudio_outer, test_modelscope, test_anrui, screenshot_demo):
+                      test_kaggle, test_aistudio, test_aistudio_monaco, test_aistudio_outer, test_modelscope, test_anrui, test_selfhosted, screenshot_demo):
                 try:
                     t(ctx, sw)
                 except Exception as e:

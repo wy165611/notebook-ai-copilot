@@ -48,6 +48,7 @@ iframe.webview{position:absolute;left:30px;width:60%;height:24px;border:0}.quick
 <script>
 const Q = new URLSearchParams(location.search);
 const MODE = { hover: !!Q.get('hover'), zh: !!Q.get('zh'), nobuttons: !!Q.get('nobuttons'), noinsert: !!Q.get('noinsert') };
+let execN = 0;
 MODE.plainBottom = !(MODE.hover || MODE.zh || MODE.nobuttons || MODE.noinsert);
 const PORT = '{{port}}';
 const rowsEl = document.getElementById('rows');
@@ -125,6 +126,17 @@ function run(c) {
   else if (/print\(x \+ 1\)/.test(code)) text = '42';
   else text = '';
   window.__fixtureOutputs.push({ index: cells.indexOf(c), text, code });
+  // 像真实 VS Code 一样：执行序号先变成 [*]，跑完变成 [N]，状态栏出现成功图标和用时
+  const lab = c.row.querySelector('.cell-execution-order > div');
+  lab.textContent = '[*]';
+  const n = ++execN;
+  setTimeout(() => {
+    lab.textContent = '[' + n + ']';
+    const sb = c.row.querySelector('.cell-statusbar-container');
+    let left = sb.querySelector('.cell-status-left');
+    if (!left) { left = document.createElement('div'); left.className = 'cell-status-left'; sb.prepend(left); }
+    left.innerHTML = '<span class="codicon codicon-notebook-state-success"></span><span class="cell-status-item">0.1s</span>';
+  }, 300);
   const out = c.row.querySelector('.output');
   if (Q.get('readable')) { out.textContent = text; return; }
   // 真实情况：输出画在跨域 webview 里，单元格 DOM 里的 .output 是空的

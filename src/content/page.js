@@ -189,11 +189,15 @@
       target.focus();
       await sleep(30);
       selectAll();
-      try { await fn(); } catch { /* 试下一个 */ }
+      try { await fn(); } catch (e) { tried.push(name + '-error:' + String(e && e.message || e).slice(0, 60)); }
       if (await waitFor(ok, 800, 60)) return 'monaco-' + name;
     }
     const left = H.normCode(monacoViewText(monacoEl));
-    trace('monaco-write-failed', { tried, input: target.className || target.tagName, rendered: left.split('\n').length });
+    const ns = monacoNamespace();
+    let editors = -1;
+    try { editors = ns ? ns.ns.editor.getEditors().length : -1; } catch { /* ignore */ }
+    trace('monaco-write-failed', { tried, input: target.className || target.tagName, rendered: left.split('\n').length,
+      monaco: ns ? ns.via : null, editors, instanceFound: !!mi, editContext: !!target.editContext, focused: document.activeElement === target });
     throw new Error(WRITE_FAILED + ':没能把代码写进 Monaco 编辑器' + (left ? '（单元格里可能留下了不完整的内容，请先清空）' : ''));
   }
 
@@ -807,6 +811,43 @@
   }
 
 
+  // 页面上“非 Notebook 内容”的文字（平台顶栏、实例规格等），用来猜硬件。跳过单元格、输出、编辑器和文件列表，不读代码
+  const HW_SKIP = '.jp-Notebook, .jp-OutputArea, .jp-DirListing, .jp-FileBrowser, .cm-editor, .CodeMirror, .monaco-editor, .notebook-editor, ' +
+    '.output, .xterm, .jp-Terminal, script, style, noscript, textarea, pre, code, #nbac-none';
+  function hardwareText() {
+    const parts = [document.title || ''];
+    let n = 0, len = 0;
+    try {
+      const w = document.createTreeWalker(document.body || document.documentElement, NodeFilter.SHOW_TEXT, {
+        acceptNode(t) {
+          const e = t.parentElement;
+          if (!e || !t.nodeValue.trim()) return NodeFilter.FILTER_REJECT;
+          return e.closest(HW_SKIP) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
+        }
+      });
+      while (w.nextNode() && n < 4000 && len < 30000) { const v = w.currentNode.nodeValue.trim(); parts.push(v); n++; len += v.length; }
+    } catch { /* ignore */ }
+    // 平台常把规格写在 title / aria-label 里
+    document.querySelectorAll('[title*="GPU" i], [aria-label*="GPU" i], [title*="AMD"], [title*="NVIDIA" i]').forEach((e, i) => {
+      if (i < 20 && !e.closest(HW_SKIP)) parts.push(e.getAttribute('title') || '', e.getAttribute('aria-label') || '');
+    });
+    return parts.join(' ');
+  }
+  function hardwareHint() {
+    try { return H.parseHardwareHints({ text: hardwareText(), url: location.href, platform: platformName() }); } catch { return null; }
+  }
+
+  // 扫描单元格输出，找“检测硬件”单元格打印的 NBAC_HW 行（只读这一行）
+  function readHardwareProbe() {
+    const sel = '.jp-OutputArea-output, .output_area .output_subarea, .output-content, .cell-output, .output';
+    let found = '';
+    document.querySelectorAll(sel).forEach((o) => {
+      const m = (o.innerText || o.textContent || '').match(/NBAC_HW\s*\{[^\n]*\}/g);
+      if (m) found = m[m.length - 1];
+    });
+    return { line: found, unreadable: !found && !!vscodeNotebook.detect() && vscodeNotebook.outputUnreadable() };
+  }
+
   function pickAdapter() {
     if (jupyterLab.detect()) return jupyterLab;
     if (classicNotebook.detect()) return classicNotebook;
@@ -877,6 +918,7 @@
         } else if (r.platform === 'ModelScope' && window.top === window && /^\/my\/mynotebook/.test(location.pathname)) {
           r.hint = '请先启动 Notebook 实例，再点「查看 / View」打开 Code Editor';
         }
+        r.hw = hardwareHint();
         return r;
       }
       const nb = a === jupyterLab ? jupyterLab.notebookNode() : null;
@@ -884,8 +926,10 @@
       const r = { detected: true, platform: platformName(), kind: a.kind, cellCount, viaApp: a === jupyterLab && !!jupyterLab.panelWidget() };
       if (a === jupyterLab && !r.viaApp) r.viaModel = !!(await labFinder.widgetFor(nb));
       if (a === vscodeNotebook) r.notice = vscodeNotebook.kernelHint();
+      r.hw = hardwareHint();
       return r;
     },
+    readHardwareProbe,
     async getContext() {
       const a = pickAdapter();
       if (!a) throw new Error('当前页面没有检测到 Notebook');
