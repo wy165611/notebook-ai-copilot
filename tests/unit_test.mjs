@@ -99,7 +99,7 @@ assert.deepEqual(filterChatModels(['qwen3.8-max', 'paraformer-v2', 'qwen-tts', '
 // manifest：安睿云域名在所有内容脚本里都匹配、全部 frame 注入
 {
   const man = JSON.parse(fs.readFileSync(new URL('../manifest.json', import.meta.url), 'utf8'));
-  assert.equal(man.version, '0.1.4');
+  assert.equal(man.version, '0.1.5');
   for (const perm of ['sidePanel', 'storage', 'scripting', 'activeTab']) assert.ok(man.permissions.includes(perm), perm);
   assert.ok(!man.permissions.includes('tabs'), '发布版不要 tabs 权限');
   assert.ok(man.host_permissions.includes('https://*.anruicloud.com/*'));

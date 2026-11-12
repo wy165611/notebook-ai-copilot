@@ -817,15 +817,22 @@
   function hardwareText() {
     const parts = [document.title || ''];
     let n = 0, len = 0;
+    const tStart = performance.now();
     try {
       const w = document.createTreeWalker(document.body || document.documentElement, NodeFilter.SHOW_TEXT, {
         acceptNode(t) {
+          if (performance.now() - tStart > 60) return NodeFilter.FILTER_SKIP;
           const e = t.parentElement;
           if (!e || !t.nodeValue.trim()) return NodeFilter.FILTER_REJECT;
           return e.closest(HW_SKIP) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
         }
       });
-      while (w.nextNode() && n < 4000 && len < 30000) { const v = w.currentNode.nodeValue.trim(); parts.push(v); n++; len += v.length; }
+      const t0 = performance.now();
+      let visited = 0;
+      while (w.nextNode() && n < 4000 && len < 30000) {
+        const v = w.currentNode.nodeValue.trim(); parts.push(v); n++; len += v.length;
+        if ((++visited & 63) === 0 && performance.now() - t0 > 40) break;
+      }
     } catch { /* ignore */ }
     // 平台常把规格写在 title / aria-label 里
     document.querySelectorAll('[title*="GPU" i], [aria-label*="GPU" i], [title*="AMD"], [title*="NVIDIA" i]').forEach((e, i) => {
@@ -833,8 +840,19 @@
     });
     return parts.join(' ');
   }
+  // 读页面文字可能很慢（Kaggle / JupyterLab 的 DOM 很大），所以检测时只返回缓存，真正的扫描放到回报之后、有时间上限
+  let hwCache = null, hwAt = 0, hwPending = false;
+  function computeHardwareHint() {
+    try { hwCache = H.parseHardwareHints({ text: hardwareText(), url: location.href, platform: platformName() }); } catch { hwCache = null; }
+    hwAt = Date.now();
+    return hwCache;
+  }
   function hardwareHint() {
-    try { return H.parseHardwareHints({ text: hardwareText(), url: location.href, platform: platformName() }); } catch { return null; }
+    if (!hwPending && Date.now() - hwAt > 15000) {
+      hwPending = true;
+      setTimeout(() => { try { computeHardwareHint(); } finally { hwPending = false; } }, 50);
+    }
+    return hwCache;
   }
 
   // 扫描单元格输出，找“检测硬件”单元格打印的 NBAC_HW 行（只读这一行）
@@ -930,6 +948,7 @@
       return r;
     },
     readHardwareProbe,
+    hardwareHint() { return computeHardwareHint(); },
     async getContext() {
       const a = pickAdapter();
       if (!a) throw new Error('当前页面没有检测到 Notebook');

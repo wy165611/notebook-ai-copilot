@@ -36,7 +36,7 @@ const KIND_RANK = { jupyterlab: 3, 'vscode-notebook': 3, 'classic-notebook': 2, 
 let detectRetry = null;
 
 // 向标签页里所有 frame 广播检测请求，收集各 frame 的回报（sender.frameId），选出真正有 Notebook 的 frame
-async function collectReports(tabId, waitMs = 900, action = 'detect', replyType = 'nbac-detected') {
+async function collectReports(tabId, waitMs = 1500, action = 'detect', replyType = 'nbac-detected') {
   const reqId = Math.random().toString(36).slice(2);
   const reports = [];
   const listener = (msg, sender) => {
@@ -118,6 +118,24 @@ function showHw(hw) {
   e.title = hw && hw.evidence ? '依据：' + hw.evidence : (hw && hw.source === 'probe' ? '来自“检测硬件”单元格的输出' : '“+ → 检测硬件”可以在 Notebook 里运行一段只读的检测代码');
 }
 
+async function refreshPageHw(reports) {
+  const t = target;
+  if (!t) return;
+  try {
+    const frames = [...new Set([t.frameId, ...reports.filter((r) => r.top).map((r) => r.frameId)])];
+    const hints = [];
+    for (const frameId of frames) {
+      try {
+        const r = await withTimeout(chrome.tabs.sendMessage(t.tabId, { type: 'nbac', action: 'hardwareHint', args: {} }, { frameId }), 3000);
+        if (r && r.ok !== false) hints.push(r.result !== undefined ? r.result : r);
+      } catch { /* ignore */ }
+    }
+    if (target !== t) return;
+    const hw = mergeHardware(await savedProbe(hwKey), hints.concat(reports.map((r) => r.hw)));
+    if (hw) { pageHw = hw; t.hardware = hw; showHw(hw); }
+  } catch { /* ignore */ }
+}
+
 async function detect(attempt = 0, opts = {}) {
   clearTimeout(detectRetry);
   target = null;
@@ -146,6 +164,7 @@ async function detect(attempt = 0, opts = {}) {
     pageHw = mergeHardware(await savedProbe(hwKey), reports.map((r) => r.hw));
     target.hardware = pageHw;
     showHw(pageHw);
+    if (!pageHw || pageHw.source !== 'probe') refreshPageHw(reports); // 页面文字扫描放在检测之后做，避免拖慢检测
     if (best.notice) showNotice(best.notice);
     else if (injected && injected.ok) showNotice('这个网页没有自动加载助手，已经在当前网页里手动加载好了（刷新网页后会自动重新加载）。');
     else if (best.kind === 'vscode-notebook' && /内核/.test($('notice').textContent)) showNotice('');
