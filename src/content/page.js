@@ -821,7 +821,7 @@
     try {
       const w = document.createTreeWalker(document.body || document.documentElement, NodeFilter.SHOW_TEXT, {
         acceptNode(t) {
-          if (performance.now() - tStart > 60) return NodeFilter.FILTER_SKIP;
+          if (performance.now() - tStart > 250) return NodeFilter.FILTER_SKIP;
           const e = t.parentElement;
           if (!e || !t.nodeValue.trim()) return NodeFilter.FILTER_REJECT;
           return e.closest(HW_SKIP) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
@@ -831,7 +831,7 @@
       let visited = 0;
       while (w.nextNode() && n < 4000 && len < 30000) {
         const v = w.currentNode.nodeValue.trim(); parts.push(v); n++; len += v.length;
-        if ((++visited & 63) === 0 && performance.now() - t0 > 40) break;
+        if ((++visited & 63) === 0 && performance.now() - t0 > 200) break;
       }
     } catch { /* ignore */ }
     // 平台常把规格写在 title / aria-label 里
@@ -902,8 +902,24 @@
       const f = await labFinder.widgetFor(jupyterLab.notebookNode());
       lab = { modelFound: !!f, ...labFinder.info };
     }
+    let hw = null;
+    try {
+      const t0 = performance.now();
+      const text = hardwareText();
+      const ms = Math.round(performance.now() - t0);
+      const snippets = [];
+      const re = /(AMD|Radeon|ROCm|Instinct|NVIDIA|Tesla|GeForce|RTX|GPU|VRAM|显存|显卡|加速器|Accelerator|T4|P100|V100|A100|H100|MI\d{3})/gi;
+      let m;
+      while ((m = re.exec(text)) && snippets.length < 12) {
+        snippets.push(text.slice(Math.max(0, m.index - 30), m.index + 40).replace(/\s+/g, ' '));
+        re.lastIndex = m.index + 40;
+      }
+      let acc = null;
+      try { const u = new URL(location.href); acc = u.searchParams.get('acceleratorType') || u.searchParams.get('accelerator'); } catch { /* ignore */ }
+      hw = { hint: computeHardwareHint(), textLength: text.length, scanMs: ms, snippets, acceleratorParam: acc };
+    } catch (e) { hw = { error: String(e && e.message || e).slice(0, 200) }; }
     const out = { url: location.origin + location.pathname, top: window.top === window, title: document.title.slice(0, 60), lang: document.documentElement.lang || '',
-      platform: platformName(), adapter: a ? a.kind : null, counts, globals, versions, lab, lastError, lastSteps: steps.slice(-20) };
+      platform: platformName(), adapter: a ? a.kind : null, counts, globals, versions, lab, hw, lastError, lastSteps: steps.slice(-20) };
     if (a === vscodeNotebook || document.querySelector('.notebook-editor')) {
       const scope = Array.from(document.querySelectorAll('.notebook-editor .monaco-action-bar a, .notebook-editor .monaco-action-bar [role="button"], .notebook-toolbar-container a, .cell-bottom-toolbar-container a, .cell-list-top-cell-toolbar-container a, .notebook-editor button'));
       out.actions = Array.from(new Set(scope)).slice(0, 60).map((el) => vscodeNotebook.describe(el));

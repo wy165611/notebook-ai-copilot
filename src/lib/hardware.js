@@ -61,7 +61,7 @@ export function mergeHardware(probe, hints) {
 }
 
 export function hardwareLabel(hw) {
-  if (!hw || !hw.vendor) return '未知（生成的代码会先自动检测）';
+  if (!hw || !hw.vendor) return '未知（生成的代码会先自动检测；也可以点「+ → 检测硬件」）';
   const extra = [hw.model, hw.vramGB ? hw.vramGB + ' GB 显存' : ''].filter(Boolean).join('，');
   const base = { amd: 'AMD GPU（ROCm）', nvidia: 'NVIDIA GPU（CUDA）', cpu: '仅 CPU', gpu: 'GPU（厂商未知）' }[hw.vendor] || '未知';
   const src = hw.source === 'probe' ? '已检测' : hw.source === 'page' ? '页面提示' : '按平台推断';
