@@ -34,6 +34,7 @@ PASS [memory] 重新打开面板后记住服务商/模型/思考强度  [{'activ
 
 === JupyterLab (dom) on :8899 ===
 PASS [dom] 检测到 Notebook  [已连接：Jupyter（jupyterlab，JupyterLab 模型，主页面）]
+PASS [dom] 连接后自动在内核里静默检测硬件（CPU 核数、内存），不新建单元格、不留输出  [硬件：仅 CPU · 8 核 CPU，15.6 GB 内存 · 已检测]
 PASS [dom] 百炼默认模型生成代码并显示在对话里  [阿里云百炼 · deepseek-v4.1-flash · 已附带上下文]
 PASS [dom] 请求发到百炼兼容接口，模型 deepseek-v4.1-flash
 PASS [dom] 读取当前单元格代码并发给模型
@@ -55,6 +56,7 @@ PASS [dom] 没有任何按钮时用快捷键/底部添加区插入并用 Shift+E
 
 === JupyterLab (app) on :8900 ===
 PASS [app] 检测到 Notebook  [已连接：Jupyter（jupyterlab，JupyterLab API，主页面）]
+PASS [app] 连接后自动在内核里静默检测硬件（CPU 核数、内存），不新建单元格、不留输出  [硬件：仅 CPU · 8 核 CPU，15.6 GB 内存 · 已检测]
 PASS [app] 百炼默认模型生成代码并显示在对话里  [阿里云百炼 · deepseek-v4.1-flash · 已附带上下文]
 PASS [app] 请求发到百炼兼容接口，模型 deepseek-v4.1-flash
 PASS [app] 读取当前单元格代码并发给模型
@@ -94,7 +96,7 @@ PASS [aistudio] 页面里有 VS Code 诱饵 frame 和嵌套 webview  [http://ais
 PASS [aistudio] iframe 里没有暴露 window.jupyterapp
 PASS [aistudio] JupyterLab 是中文界面（按钮标题为中文）  [下方插入单元格 (B)]
 PASS [aistudio] 连上 #jupyterlab-frame（平台识别为飞桨 AI Studio）  [已连接：飞桨 AI Studio（jupyterlab，JupyterLab 模型，内嵌 frame）]
-PASS [aistudio] 宿主页、VS Code frame 和 webview 都回报“不是 Notebook”  [frame 0(top): 不是 Notebook  http://aistudio.baidu.test:8770/bj-cpu-01/user/123/456/home#codelab | frame 15: jupyterlab 3 个单元格  http://aistudio.baidu.test:8770/bj-cpu-01/user/123/456/lab/tree/test.ipynb | frame 16: 不是 Notebook  http://aistudio.baidu.test:8770/bj-cpu-01/user/123/456/vscode/webview.html | frame 14: 不是 Notebook  http://aistudio.baidu.test:8770/bj-cpu-01/user/123/456/vscode/]
+PASS [aistudio] 宿主页、VS Code frame 和 webview 都回报“不是 Notebook”  [frame 0(top): 不是 Notebook  http://aistudio.baidu.test:8770/bj-cpu-01/user/123/456/home#codelab | frame 14: 不是 Notebook  http://aistudio.baidu.test:8770/bj-cpu-01/user/123/456/vscode/ | frame 16: 不是 Notebook  http://aistudio.baidu.test:8770/bj-cpu-01/user/123/456/vscode/webview.html | frame 15: jupyterlab 3 个单元格  http://aistudio.baidu.test:8770/bj-cpu-01/user/123/456/lab/tree/test.ipynb]
 PASS [aistudio] 读取单元格代码和报错
 PASS [aistudio] 系统提示带清华镜像（国内平台）
 PASS [aistudio] 打字/粘贴全被拦掉时，仍通过 JupyterLab 模型（webpack 共享作用域）插入并写入代码  [已插入到新单元格（jupyterlab-model(share-scope:default:4.6.6)），检查无误后在 Notebook 里运行]
@@ -130,7 +132,7 @@ PASS [outer] 外层编辑器提示去「专业开发」打开 BML Codelab  [这�
 
 === ModelScope Code Editor（VS Code 原生 Notebook，真实 DOM 结构夹具） ===
 PASS [ms] 连上 notebook-ide frame（平台 ModelScope，vscode-notebook）  [已连接：ModelScope（vscode-notebook，内嵌 frame）]
-PASS [ms] 外层页面和 extensionHost frame 回报“不是 Notebook”，跨域 webview 不注入  [frame 0(top): 不是 Notebook  http://modelscope.test:8771/code/workspace | frame 44: vscode-notebook 2 个单元格  http://modelscope.test:8771/notebook/main.html | frame 46: 不是 Notebook  http://modelscope.test:8771/notebook/extensionHostIframe.html]
+PASS [ms] 外层页面和 extensionHost frame 回报“不是 Notebook”，跨域 webview 不注入  [frame 44: vscode-notebook 2 个单元格  http://modelscope.test:8771/notebook/main.html | frame 0(top): 不是 Notebook  http://modelscope.test:8771/code/workspace | frame 46: 不是 Notebook  http://modelscope.test:8771/notebook/extensionHostIframe.html]
 PASS [ms] 识别到真实 Monaco 用的是 EditContext（.native-edit-context，没有 textarea.inputarea）
 PASS [ms] 内核是 /usr/bin/python3 时提示改选 /usr/local/bin/python  [当前内核是 /usr/bin/python3：在 ModelScope 免费 CPU 实例上它没有 ipykernel，运行会报错。请点 Notebook 右上角的内核名，改选 /usr/local/bin/python（Python 3.11），然后再运行。]
 PASS [ms] 读到当前单元格代码（Monaco 渲染行）  [需求：用 pandas 读一个 csv
@@ -176,7 +178,7 @@ PASS [ms] 悬停才出现、只有 title、只响应 mousedown 的单元格 + Co
 PASS [ms] 中文界面的工具栏“代码”按钮：插在当前单元格下方并写入  [已插入到新单元格（notebook-toolbar+monaco-paste），检查无误后在 Notebook 里运行]
 PASS [ms] 没有任何 + Code 按钮时按 B：插在当前单元格下方并写入  [已插入到新单元格（keyboard(B)+monaco-paste），检查无误后在 Notebook 里运行]
 PASS [ms] 插入新单元格失败时写进当前选中的空单元格并运行  [没法新建单元格，已写入当前选中的空单元格并开始运行（current-empty-cell+monaco-paste；运行：execute-button）]
-PASS [diag] 诊断信息包含所有 frame（外层页面、notebook-ide、extensionHost），标出适配器和关键选择器数量  [{"tool": "Notebook AI Copilot", "version": "0.1.7", "at": "2026-11-12T10:55:42.488Z", "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/158.0.0.0 Safari/537.36", "tabUrl": "http://modelscope.test:8771/code/workspace", "target": {"frameId": 81, "platform": "M]
+PASS [diag] 诊断信息包含所有 frame（外层页面、notebook-ide、extensionHost），标出适配器和关键选择器数量  [{"tool": "Notebook AI Copilot", "version": "0.1.8", "at": "2026-11-12T11:16:00.207Z", "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/158.0.0.0 Safari/537.36", "tabUrl": "http://modelscope.test:8771/code/workspace", "target": {"frameId": 81, "platform": "M]
 PASS [diag] ModelScope 列出候选动作按钮（tag/class/aria-label/title/文字）  [[{"tag": "a", "cls": "action-label codicon codicon-add", "aria": "Add Markdown Cell", "title": "", "text": "+", "visible": true}, {"tag": "a", "cls": "notebook-label", "aria": "", "title": "", "text": "Markdown", "visible": true}, {"tag": "a", "cls": "action-label codicon codicon-notebook-execute-all", "aria": "Run All", "title": "", "text": "▷", "visible": true}]]
 PASS [diag] 诊断信息不含代码、输出和 API Key
 PASS [diag] 点按钮后提示已复制到剪贴板（或显示在框里手动复制）  [诊断信息已复制到剪贴板（3 个 frame，8396 字），直接粘贴发给开发者即可。不含代码、输出和 API Key。]
@@ -185,26 +187,23 @@ PASS [ms] 在“我的 Notebook”列表页提示先启动实例并点「查看�
 
 === 安睿云 JupyterLab（/instances/<id>/lab，顶层页面） ===
 PASS [anrui] /instances/<id>/lab 启动器页面：提示打开或新建 Notebook  [安睿云 JupyterLab 已打开，但当前没有打开 Notebook：请在左侧文件浏览器里双击一个 .ipynb，或在启动器里新建 Notebook（Python 3）]
-PASS [anrui] 从页面顶栏认出 AMD 显卡，状态栏显示「硬件：AMD GPU（ROCm）」  [硬件：AMD GPU（ROCm） 48 GB 显存 · 页面提示]
+PASS [anrui] 从页面顶栏认出 AMD 显卡，状态栏显示「硬件：AMD GPU（ROCm）」  [硬件：AMD GPU（ROCm） 48 GB 显存 · 8 核 CPU，15.6 GB 内存 · 页面提示]
 PASS [anrui] 识别为「安睿云 JupyterLab」，顶层页面，走 JupyterLab 模型  [已连接：安睿云 JupyterLab（jupyterlab，JupyterLab 模型，主页面）]
 PASS [anrui] 页面没有暴露 window.jupyterapp
 PASS [anrui] 读到当前单元格代码和报错
 PASS [anrui] 系统提示带平台名和清华镜像（国内云）  [你是运行在 安睿云 JupyterLab Notebook 里的编程助手。
 规则：
 1. 只输出一个可以直接运行的 Python 代码单元格，放在唯一一个 ``]
-PASS [anrui] 系统提示按 AMD ROCm 写：仍用 cuda 设备、rocm-smi、ROCm 轮子、不装 CUDA 专用包  [ash-attn、xformers 的 CUDA 轮子、cupy-cuda*、onnxruntime-gpu、nvidia-* 等），需要时选 ROCm/CPU 替代方案；已有能用的 torch 就不要重装；确实要装时用 ROCm 轮子：%pip install torch torchvision --index-url https://download.pytorch.org/whl/rocm6.x（把 6.x 换成和系统 ROCm 一致的版本，例如 rocm6.2），不要用默认的 CUDA 版。用到 GPU 的代码开头打印 torch.cuda.get_device_name(0) 确认。]
+PASS [anrui] 系统提示按 AMD ROCm 写：仍用 cuda 设备、rocm-smi、ROCm 轮子、不装 CUDA 专用包  [p install torch torchvision --index-url https://download.pytorch.org/whl/rocm6.x（把 6.x 换成和系统 ROCm 一致的版本，例如 rocm6.2），不要用默认的 CUDA 版。用到 GPU 的代码开头打印 torch.cuda.get_device_name(0) 确认。检测时没有找到 torch，需要时按上面的 ROCm 方式安装。CPU 8 核、内存 15.6 GB：DataLoader 的 num_workers 不超过 CPU 核数，数据量、batch size 要放得进内存和每张卡 48 GB 显存。]
 PASS [anrui] 插入新单元格（直接写 JupyterLab 模型）  [已插入到新单元格（jupyterlab-model(listener-hook)），检查无误后在 Notebook 里运行]
 PASS [anrui] 运行前要确认
 PASS [anrui] 确认后插入并运行，输出 NBAC_OK 42 True  [已插入新单元格并开始运行（jupyterlab-model(listener-hook)；运行：jupyterlab-model）]
 PASS [anrui] 修复报错后运行成功（NBAC_FIXED 1.0）  [已插入新单元格并开始运行（jupyterlab-model(listener-hook)；运行：jupyterlab-model）]
 PASS [anrui] 检测硬件：给出只读的检测代码（打印 NBAC_HW，不安装东西）
 PASS [anrui] 检测硬件也要先确认才运行
-PASS [anrui] 检测硬件：运行后自动读回结果并保存（本机：仅 CPU · 已检测）  [已插入并运行检测代码。硬件：仅 CPU · 已检测（之后生成的代码会按这个硬件来写） | 硬件：仅 CPU · 已检测]
-PASS [anrui] 重新检测后仍用保存的检测结果（优先于页面提示）  [硬件：仅 CPU · 已检测]
-PASS [anrui] 检测结果用到之后的提示词里（只有 CPU）  [简短中文注释。
-5. 如果用户给了报错信息，输出修好后的完整单元格，而不是只给片段。
-6. 不要编造路径；不确定的路径用变量写在开头，方便用户修改。
-7. 运行环境：没有可用的 GPU，只有 CPU：用 device="cpu"，训练时调小数据量 / batch / epoch，不要安装 CUDA 版的包。环境里还没有 torch，需要时先 %pip install torch（CPU 版即可）。]
+PASS [anrui] 检测硬件：运行后自动读回结果并保存（本机没有 torch：显卡沿用页面的 AMD，CPU 核数和内存用检测结果）  [已插入并运行检测代码。硬件：仅 CPU · 8 核 CPU，15.6 GB 内存 · 已检测（之后生成的代码会按这个硬件来写） | 硬件：AMD GPU（ROCm） 48 GB 显存 · 8 核 CPU，15.6 GB 内存 · 页面提示]
+PASS [anrui] 重新检测后仍用保存的检测结果（CPU 核数、内存）  [硬件：AMD GPU（ROCm） 48 GB 显存 · 8 核 CPU，15.6 GB 内存 · 页面提示]
+PASS [anrui] 检测结果用到之后的提示词里（AMD + CPU 核数、内存）  [的版本，例如 rocm6.2），不要用默认的 CUDA 版。用到 GPU 的代码开头打印 torch.cuda.get_device_name(0) 确认。检测时没有找到 torch，需要时按上面的 ROCm 方式安装。CPU 8 核、内存 15.6 GB：DataLoader 的 num_workers 不超过 CPU 核数，数据量、batch size 要放得进内存和每张卡 48 GB 显存。]
 PASS [anrui] 贴回 NBAC_HW 输出也能记录硬件（AMD W7900 · 已检测）  [硬件：AMD GPU（ROCm） AMD Radeon PRO W7900，48 GB 显存 · 已检测]
 PASS [anrui] 之后的提示词按 AMD W7900 写  [要重装；确实要装时用 ROCm 轮子：%pip install torch torchvision --index-url https://download.pytorch.org/whl/rocm6.x（把 6.x 换成和系统 ROCm 一致的版本，例如 rocm6.2），不要用默认的 CUDA 版。用到 GPU 的代码开头打印 torch.cuda.get_device_name(0) 确认。]
 
@@ -219,9 +218,9 @@ PASS [selfhosted] 刷新后脚本自动加载（document_start 的 early.js 也�
 PASS [selfhosted] 刷新后直接连上（不用再注入），走 JupyterLab 模型  [已连接：Jupyter（jupyterlab，JupyterLab 模型，主页面）]
 PASS [noperm] 没有权限：状态说明需要权限，并显示「在此网站启用助手」  [助手还没有访问这个网站的权限，所以读不到 Notebook | 点下面的按钮，Chrome 会询问是否允许助手访问 http://noperm.test（只申请这一个网站）]
 PASS [noperm] 状态不再误报“不是 Notebook 页面”  [助手还没有访问这个网站的权限，所以读不到 Notebook]
-PASS [noperm] 诊断信息里有注入失败原因和权限信息  [{"at": "2026-11-12T10:56:23.267Z", "ok": false, "error": "Cannot access contents of url \"http://noperm.test:8903/instances/rgapi-one-click-test-0001/lab/tree/test.ipynb\". Extension manifest must req]
+PASS [noperm] 诊断信息里有注入失败原因和权限信息  [{"at": "2026-11-12T11:16:41.076Z", "ok": false, "error": "Cannot access contents of url \"http://noperm.test:8903/instances/rgapi-one-click-test-0001/lab/tree/test.ipynb\". Extension manifest must req]
 
 === 截图 ===
 PASS [demo] 截图用的运行也成功
 
-158/158 checks passed
+160/160 checks passed

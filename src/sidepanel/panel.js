@@ -93,6 +93,7 @@ function showSiteAccess(show, hint, origins) {
 const HW_KEY = 'nbacHardware';
 let pageHw = null; // 当前连接的硬件（合并后）
 let hwKey = null;
+let lastHints = []; // 当前网页各 frame 的页面硬件提示
 function hwKeyFor(reports) {
   const top = reports.find((r) => r.top) || reports[0];
   try { const u = new URL(top.url); return u.origin + u.pathname; } catch { return null; }
@@ -131,7 +132,8 @@ async function refreshPageHw(reports) {
       } catch { /* ignore */ }
     }
     if (target !== t) return;
-    const hw = mergeHardware(await savedProbe(hwKey), hints.concat(reports.map((r) => r.hw)));
+    lastHints = hints.concat(reports.map((r) => r.hw));
+    const hw = mergeHardware(await savedProbe(hwKey), lastHints);
     if (hw) { pageHw = hw; t.hardware = hw; showHw(hw); }
   } catch { /* ignore */ }
 }
@@ -161,10 +163,11 @@ async function detect(attempt = 0, opts = {}) {
     const where = best.top ? '主页面' : '内嵌 frame';
     setStatus(`已连接：${best.platform}（${best.kind}${best.viaApp ? '，JupyterLab API' : best.viaModel ? '，JupyterLab 模型' : ''}，${where}）`, 'ok');
     hwKey = hwKeyFor(reports);
-    pageHw = mergeHardware(await savedProbe(hwKey), reports.map((r) => r.hw));
+    lastHints = reports.map((r) => r.hw);
+    pageHw = mergeHardware(await savedProbe(hwKey), lastHints);
     target.hardware = pageHw;
     showHw(pageHw);
-    if (!pageHw || pageHw.source !== 'probe') refreshPageHw(reports); // 页面文字扫描放在检测之后做，避免拖慢检测
+    refreshPageHw(reports).then(() => autoProbe(target)); // 页面文字扫描放在检测之后做，避免拖慢检测
     if (best.notice) showNotice(best.notice);
     else if (injected && injected.ok) showNotice('这个网页没有自动加载助手，已经在当前网页里手动加载好了（刷新网页后会自动重新加载）。');
     else if (best.kind === 'vscode-notebook' && /内核/.test($('notice').textContent)) showNotice('');
@@ -516,10 +519,11 @@ function autoGrow() { const t = $('prompt'); t.style.height = 'auto'; t.style.he
 
 
 // ---------- 检测硬件：插入一段只读的检测代码，确认后运行，再从输出里读 NBAC_HW 那一行 ----------
-async function storeProbe(hw) {
+async function storeProbe(probe) {
+  const hw = mergeHardware(probe, lastHints);
   pageHw = hw;
   if (target) target.hardware = hw;
-  await saveProbe(hwKey, hw);
+  await saveProbe(hwKey, probe);
   showHw(hw);
 }
 
@@ -533,6 +537,42 @@ function probeHardware() {
     code: PROBE_CODE, meta: '内置 · 检测硬件',
     onRan: (setResult) => readProbeResult(setResult)
   });
+}
+
+// 连接后自动检测一次硬件（显卡型号、显存、内存、CPU 核数），结果按网页保存 12 小时
+// JupyterLab（Kaggle、安睿云、AI Studio 等）：在已连接的内核里静默运行，不新建单元格
+// VS Code 网页版 Notebook（ModelScope）：网页里没有内核接口，只能插入一个只读检测单元格并运行；每个网页 12 小时内最多一次
+const HW_TRIED_KEY = 'nbacHwAutoTried';
+let autoProbing = false;
+async function autoProbe(t) {
+  if (!t || t !== target || autoProbing || !hwKey) return;
+  if ((await savedProbe(hwKey))) return;
+  const key = hwKey;
+  autoProbing = true;
+  try {
+    if (t.kind === 'jupyterlab') {
+      let r = null;
+      try {
+        r = await withTimeout(chrome.tabs.sendMessage(t.tabId, { type: 'nbac', action: 'kernelProbe', args: { code: PROBE_CODE, timeoutMs: 40000 }, timeoutMs: 45000 }, { frameId: t.frameId }), 47000);
+      } catch { return; }
+      const hw = r && r.ok && r.result && r.result.output ? parseProbeOutput(r.result.output) : null;
+      if (hw && target === t && hwKey === key) await storeProbe(hw);
+      return;
+    }
+    if (t.kind === 'vscode-notebook') {
+      const tried = (await chrome.storage.local.get(HW_TRIED_KEY))[HW_TRIED_KEY] || {};
+      if (tried[key] && Date.now() - tried[key] < 12 * 3600 * 1000) return;
+      tried[key] = Date.now();
+      await chrome.storage.local.set({ [HW_TRIED_KEY]: tried });
+      showNotice('正在自动检测硬件：在 Notebook 里插入了一个只读的检测单元格并运行（不安装任何东西，检测完可以删掉）。');
+      try {
+        await call('insertCellBelow', { code: PROBE_CODE });
+        await call('runCell', {});
+      } catch (e) { showNotice('自动检测硬件没成功：' + e.message + '。可以点「+ → 检测硬件」再试。'); return; }
+      const hw = await readProbeResult((msg) => showNotice(msg));
+      if (hw) showNotice('已自动检测硬件：' + hardwareLabel(hw));
+    }
+  } finally { autoProbing = false; }
 }
 
 async function readProbeResult(setResult) {

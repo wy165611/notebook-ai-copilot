@@ -10,7 +10,7 @@
 (() => {
   // 扩展更新后，网页里可能还留着旧版脚本（页面世界里的脚本不会随扩展重新加载而消失）。
   // 所以按版本判断是否已加载，消息事件名也带版本号，旧脚本收不到新版的请求。BUILD 必须和 manifest 的 version 一致（单元测试会检查）
-  const BUILD = '0.1.7';
+  const BUILD = '0.1.8';
   if (window.__nbacPageBuild === BUILD) return;
   window.__nbacPageLoaded = true;
   window.__nbacPageBuild = BUILD;
@@ -974,6 +974,31 @@
       return r;
     },
     readHardwareProbe,
+    // 在当前 Notebook 已连接的内核里静默运行只读检测代码（不新建单元格、不进历史），返回输出文字
+    async kernelProbe({ code, timeoutMs }) {
+      if (typeof code !== 'string' || !/NBAC_HW/.test(code)) throw new Error('只能运行内置的检测代码');
+      if (pickAdapter() !== jupyterLab) return { unavailable: 'not-jupyterlab' };
+      let ctx = null;
+      const w = jupyterLab.panelWidget();
+      if (w) ctx = w.sessionContext;
+      if (!ctx) {
+        const f = await labFinder.widgetFor(jupyterLab.notebookNode());
+        ctx = f && f.nb && f.nb.parent && f.nb.parent.sessionContext;
+      }
+      const kernel = ctx && ctx.session && ctx.session.kernel;
+      if (!kernel || !kernel.requestExecute) return { unavailable: 'no-kernel' };
+      if (/dead|unknown|starting|restarting|autorestarting/.test(String(kernel.status || '')) || kernel.connectionStatus === 'disconnected') return { unavailable: 'kernel-' + (kernel.status || kernel.connectionStatus) };
+      const future = kernel.requestExecute({ code, silent: false, store_history: false, allow_stdin: false, stop_on_error: false }, true);
+      let out = '';
+      future.onIOPub = (msg) => {
+        const t = msg && msg.header && msg.header.msg_type;
+        if (t === 'stream' && msg.content && msg.content.text) out += msg.content.text;
+      };
+      const limit = Math.min(Number(timeoutMs) || 30000, 60000);
+      await Promise.race([Promise.resolve(future.done).catch(() => {}), new Promise((r) => setTimeout(r, limit))]);
+      const m = out.match(/NBAC_HW\s*\{[^\n]*\}/g);
+      return { output: m ? m[m.length - 1] : '', busy: !m && /busy/.test(String(kernel.status || '')) };
+    },
     hardwareHint() { return computeHardwareHint(); },
     async getContext() {
       const a = pickAdapter();

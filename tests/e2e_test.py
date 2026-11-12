@@ -166,6 +166,15 @@ def test_jupyterlab(ctx, sw, port, mode):
     status = wait_status_ok(panel)
     want = ('（jupyterlab，JupyterLab API，主页面）' in status) if mode == 'app' else ('（jupyterlab，JupyterLab 模型，主页面）' in status)
     check(f'[{mode}] 检测到 Notebook', want, status)
+    n_cells = page.eval_on_selector_all('.jp-Notebook .jp-Cell', 'e => e.length')
+    hw_ok = False
+    for _ in range(60):
+        hw_txt = panel.inner_text('#hw')
+        if '已检测' in hw_txt and '核 CPU' in hw_txt and 'GB 内存' in hw_txt: hw_ok = True; break
+        time.sleep(0.5)
+    check(f'[{mode}] 连接后自动在内核里静默检测硬件（CPU 核数、内存），不新建单元格、不留输出',
+          hw_ok and page.eval_on_selector_all('.jp-Notebook .jp-Cell', 'e => e.length') == n_cells and
+          page.evaluate("() => !document.body.innerText.includes('NBAC_HW')"), hw_txt)
 
     # 1) 生成代码，带上下文（默认：百炼 + deepseek-v4.1-flash）
     code, _, meta = ask(panel, '配置好训练 YOLO11m 的环境并写好训练代码')
@@ -596,6 +605,8 @@ def ms_open(ctx, sw, query=''):
     page.set_viewport_size({'width': 1100, 'height': 900})
     page.goto(MS + '/code/workspace?instanceId=dsw-test&resourceType=free&acceleratorType=CPU' + query)
     fr = wait_frame(page, lambda f: '/notebook/main.html' in f.url and f.evaluate('() => !!window.__fixtureReady'), 'notebook-ide', 30)
+    # 这些用例按单元格位置检查，先标记“已自动检测过硬件”，避免自动插入检测单元格打乱位置
+    sw.evaluate("(k) => chrome.storage.local.set({nbacHwAutoTried: {[k]: Date.now()}})", MS + '/code/workspace')
     panel = open_panel(ctx, sw, MS + '/code/*')
     set_storage(panel, providers=mock_providers(), active='bailian', thinking='default', includeContext=True)
     return page, fr, panel
@@ -824,14 +835,14 @@ def test_anrui(ctx, sw):
         ok = False
     res = msg.query_selector('.result').inner_text()
     hw = panel.inner_text('#hw')
-    check('[anrui] 检测硬件：运行后自动读回结果并保存（本机：仅 CPU · 已检测）', ok and '仅 CPU' in res and hw.startswith('硬件：仅 CPU') and '已检测' in hw, res + ' | ' + hw)
+    check('[anrui] 检测硬件：运行后自动读回结果并保存（本机没有 torch：显卡沿用页面的 AMD，CPU 核数和内存用检测结果）', ok and '核 CPU' in res and hw.startswith('硬件：AMD GPU（ROCm）') and '核 CPU' in hw and 'GB 内存' in hw, res + ' | ' + hw)
     panel.click('#plusBtn'); panel.click('#refresh')
     wait_status_ok(panel)
     hw = panel.inner_text('#hw')
-    check('[anrui] 重新检测后仍用保存的检测结果（优先于页面提示）', '仅 CPU' in hw and '已检测' in hw, hw)
+    check('[anrui] 重新检测后仍用保存的检测结果（CPU 核数、内存）', 'AMD' in hw and '核 CPU' in hw and 'GB 内存' in hw, hw)
     ask(panel, '训练一个小模型')
     sysp = last().get('system', '')
-    check('[anrui] 检测结果用到之后的提示词里（只有 CPU）', '只有 CPU' in sysp and 'device="cpu"' in sysp, sysp[-200:])
+    check('[anrui] 检测结果用到之后的提示词里（AMD + CPU 核数、内存）', 'AMD GPU' in sysp and 'num_workers 不超过 CPU 核数' in sysp, sysp[-200:])
     # 输出读不到的平台：用户把 NBAC_HW 那一行贴回来
     panel.fill('#prompt', 'NBAC_HW {"vendor":"amd","devices":[{"name":"AMD Radeon PRO W7900","vram_gb":48.0}],"torch":"2.5.1+rocm6.2","hip_build":"6.2"}')
     panel.click('#send')

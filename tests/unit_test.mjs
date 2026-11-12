@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
-import { PROBE_CODE, parseProbeOutput, mergeHardware, hardwareLabel } from '../src/lib/hardware.js';
+import { PROBE_CODE, parseProbeOutput, mergeHardware, hardwareLabel, hardwareRule } from '../src/lib/hardware.js';
 import { MAIN_SCRIPTS, ISOLATED_SCRIPTS, classifyInjectError, originPattern, isInternalUrl } from '../src/lib/inject.js';
 import { extractCode, systemPrompt, buildUserMessage, thinkingParams, supportedThinking, filterChatModels, PRESETS, DEFAULTS } from '../src/lib/llm.js';
 
@@ -111,7 +111,7 @@ assert.deepEqual(filterChatModels(['qwen3.8-max', 'paraformer-v2', 'qwen-tts', '
 // manifest：安睿云域名在所有内容脚本里都匹配、全部 frame 注入
 {
   const man = JSON.parse(fs.readFileSync(new URL('../manifest.json', import.meta.url), 'utf8'));
-  assert.equal(man.version, '0.1.7');
+  assert.equal(man.version, '0.1.8');
   for (const f of ['src/content/page.js', 'src/content/bridge.js', 'src/content/nb-helpers.js']) {
     const src = fs.readFileSync(new URL('../' + f, import.meta.url), 'utf8');
     const m = src.match(/const BUILD = '([^']+)'/);
@@ -167,6 +167,10 @@ assert.deepEqual(filterChatModels(['qwen3.8-max', 'paraformer-v2', 'qwen-tts', '
   const cpu = parseProbeOutput('NBAC_HW {"python":"3.12.0","cpu_count":8,"vendor":"cpu","devices":[],"torch_error":"ModuleNotFoundError: x"}');
   assert.equal(cpu.vendor, 'cpu'); assert.ok(cpu.torchMissing);
   assert.equal(parseProbeOutput('NBAC_HW {"vendor":"amd","devices":[],"smi":"GPU[0] : Card series: AMD Instinct MI210"}').model, 'AMD Instinct MI210');
+  const full = parseProbeOutput('NBAC_HW {"vendor":"nvidia","devices":[{"name":"Tesla T4","vram_gb":15.0},{"name":"Tesla T4","vram_gb":15.0}],"cpu_count":4,"ram_gb":31.4,"torch":"2.4"}');
+  assert.equal(full.cpuCores, 4); assert.equal(full.ramGB, 31.4);
+  assert.equal(hardwareLabel(full), 'NVIDIA GPU（CUDA） Tesla T4 ×2，15 GB 显存 · 4 核 CPU，31.4 GB 内存 · 已检测');
+  assert.match(hardwareRule(full), /num_workers 不超过 CPU 核数/);
   assert.equal(parseProbeOutput('no line'), null);
   assert.equal(parseProbeOutput('NBAC_HW {broken'), null);
   const nv = parseProbeOutput('NBAC_HW {"vendor":"nvidia","devices":[{"name":"Tesla T4","vram_gb":14.7},{"name":"Tesla T4","vram_gb":14.7}],"torch":"2.4","cuda_build":"12.1"}');
@@ -175,7 +179,12 @@ assert.deepEqual(filterChatModels(['qwen3.8-max', 'paraformer-v2', 'qwen-tts', '
   const pageAmd = { vendor: 'amd', model: '', vramGB: 48, source: 'page' };
   const urlCpu = { vendor: 'cpu', source: 'url' };
   assert.equal(mergeHardware(null, [null, urlCpu, pageAmd]), pageAmd);
-  assert.equal(mergeHardware(cpu, [pageAmd]), cpu);
+  const merged = mergeHardware(cpu, [pageAmd]);
+  assert.equal(merged.vendor, 'amd', '检测没找到 GPU 但页面写了 AMD：显卡按页面');
+  assert.equal(merged.cpuCores, 8, 'CPU 核数按检测结果');
+  assert.equal(mergeHardware(amd, [urlCpu]), amd);
+  const cpuWithTorch = { ...cpu, torchMissing: false };
+  assert.equal(mergeHardware(cpuWithTorch, [pageAmd]), cpuWithTorch, '有 torch 且确认没有 GPU 时以检测结果为准');
   assert.equal(mergeHardware(null, [null]), null);
   assert.equal(hardwareLabel(pageAmd), 'AMD GPU（ROCm） 48 GB 显存 · 页面提示');
   assert.match(hardwareLabel(amd), /^AMD GPU（ROCm） AMD Radeon PRO W7900，48 GB 显存 · 已检测$/);

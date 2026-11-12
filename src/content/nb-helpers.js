@@ -1,7 +1,7 @@
 // 纯函数（不碰 DOM），给 page.js 用，也方便 node 单元测试（tests/unit_test.mjs 用 vm 加载本文件）。
 (() => {
   const root = typeof window !== 'undefined' ? window : globalThis;
-  const BUILD = '0.1.7'; // 和 manifest 的 version 一致；旧版留在网页里的 helpers 会被替换
+  const BUILD = '0.1.8'; // 和 manifest 的 version 一致；旧版留在网页里的 helpers 会被替换
   if (root.__nbacHelpers && root.__nbacHelpers.build === BUILD) return;
 
   // 比较用：去掉 \r、每行行尾空白、首尾空行
@@ -81,6 +81,10 @@
     // JupyterLab 装的插件名：安睿云的 AMD 一键镜像带 @amd-oneclick/resource-status 等
     const ext = (extensions || []).map(String).filter(n => /(^|[@/_-])amd([/_-]|$)|rocm/i.test(n));
     if (ext.length) return { vendor: 'amd', model: '', vramGB: null, source: 'jupyterlab', evidence: ext.slice(0, 2).join(', ') };
+    // 飞桨 AI Studio：网址里的集群名，如 /bj-cpu-01/ 表示 CPU 环境
+    if (u && /(^|\.)aistudio\.baidu\.com$/.test(u.hostname) && /^\/[a-z]+-cpu-\d+\//i.test(u.pathname)) {
+      return { vendor: 'cpu', model: '', vramGB: null, source: 'url', evidence: u.pathname.split('/')[1] };
+    }
     // 网址里的加速器类型（ModelScope：acceleratorType=CPU / GPU）
     const acc = u && (u.searchParams.get('acceleratorType') || u.searchParams.get('accelerator'));
     if (acc && /^cpu$/i.test(acc)) return { vendor: 'cpu', model: '', vramGB: null, source: 'url', evidence: 'acceleratorType=' + acc };
