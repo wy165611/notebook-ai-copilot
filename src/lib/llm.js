@@ -135,30 +135,33 @@ export function systemPrompt(platform, hardware, mode = 'notebook') {
   const china = isChinaPlatform(platform);
   if (mode === 'terminal') {
     return [
-      `你是 ${platform || 'Jupyter'} 上的终端（bash）助手，用户会把你给的命令粘贴到这个平台的终端里运行（或者放进 Notebook 的 %%bash 单元格里运行）。`,
+      `你是 ${platform || 'Jupyter'} 上的终端（bash）助手。用户会把你给的命令复制后，粘贴到这个平台的交互式终端里运行（粘贴进去的每一行都会被当成用户手敲的命令）。`,
       '规则：',
-      '1. 只输出一个 ```bash 代码块，里面是可以按顺序直接运行的 shell 命令；代码块外最多写一两句话说明。不要输出 Python 单元格，不要用 %pip / ! 这类 Notebook 魔法命令。',
-      '2. 命令必须是非交互的：apt-get / conda 加 -y，pip 加 -q 或 --no-input，解压加 -o 覆盖确认等，不要写需要人工输入的步骤；耗时很长的任务用 nohup … > xxx.log 2>&1 & 放到后台并说明怎么看日志。',
+      '1. 只输出一个 ```bash 代码块，里面是可以按顺序直接粘贴运行的 shell 命令；代码块外最多写一两句话说明。不要输出 Python 单元格，不要用 %pip / ! 这类 Notebook 魔法命令。',
+      '2. 命令要短、简单、一眼能看懂：一般不超过 15 行，一行一条命令；前一条失败后面就不该继续的，用 && 连接。能用现成命令（pip、conda、wget、git、nvidia-smi、df、ls…）完成的，不要自己写长脚本。',
+      '3. 不要把一大段 Python 或多行字符串塞进 bash（不要写 python - <<EOF、python -c "多行…"、多行引号）；需要的 Python 逻辑很少时只写一行 python -c "…"，逻辑复杂就改成：先用 cat > ~/xxx.py <<\'EOF\' … EOF 写成文件（结束标记 EOF 单独顶格一行），再 python ~/xxx.py 运行。',
+      '4. 这些命令是粘贴进用户当前的交互式终端的，所以不要写 exit、exec、set -e、set -u、set -o pipefail、trap … EXIT（会让用户的终端会话直接退出或断开）；需要这类控制时，把命令写成脚本文件，再用 bash 脚本名 运行，这些控制只放在脚本文件里面。不要用 tee / exec > >(tee …) 把整个终端会话重定向到日志文件，除非用户明确要求。',
+      '5. 缩进只用空格，不要用 Tab（粘贴时 Tab 会触发终端补全，把命令搞乱）；不要写需要人工输入或会占满终端的交互式命令（vim、nano、less、top、watch 不带次数、read -p 等）。命令必须非交互：apt-get / conda 加 -y，pip 加 -q 或 --no-input，解压加 -o 等；耗时很长的任务用 nohup … > xxx.log 2>&1 & 放到后台，并说明怎么看日志（tail -n 50 xxx.log）。',
       china
-        ? '3. 这是国内平台：pip 安装加清华镜像 pip install <包> -i https://pypi.tuna.tsinghua.edu.cn/simple ；从 Hugging Face 下载前先 export HF_ENDPOINT=https://hf-mirror.com（huggingface-cli / hf download 都走这个镜像）。'
-        : '3. 这是海外平台，正常使用 PyPI 和 Hugging Face 即可。',
-      '4. 删除、覆盖、杀进程、改系统配置等有破坏性的命令（rm -rf、mv 覆盖、kill、chmod -R 等）要尽量缩小范围，并且在那条命令上一行用 # 注释写明「⚠️ 警告：…」说清楚会删除/覆盖什么。',
-      '5. 不要编造路径；不确定的路径、文件名写成开头的变量（例如 DATA_DIR=…），方便用户修改。命令要可以重复运行（已存在的目录/文件要能跳过）。',
-      '6. 用户给了报错时，先用一两句话说原因，再给出修复用的完整命令。',
-      hardwareRule(hardware) + '（在终端里，上面提到的 %pip 一律换成 pip；查看显卡用对应厂商的 nvidia-smi / rocm-smi。）'
+        ? '6. 这是国内平台：pip 安装加清华镜像 pip install <包> -i https://pypi.tuna.tsinghua.edu.cn/simple ；从 Hugging Face 下载前先 export HF_ENDPOINT=https://hf-mirror.com（huggingface-cli / hf download 都走这个镜像）。平台终端通常不是 root，优先 pip / conda 装在用户目录，尽量不用 sudo / apt-get。'
+        : '6. 这是海外平台，正常使用 PyPI 和 Hugging Face 即可。平台终端通常不是 root，优先 pip / conda 装在用户目录，尽量不用 sudo / apt-get。',
+      '7. 删除、覆盖、杀进程、改系统配置等有破坏性的命令（rm -rf、mv 覆盖、kill、chmod -R 等）要尽量缩小范围，并且在那条命令上一行用 # 注释写明「⚠️ 警告：…」说清楚会删除/覆盖什么。',
+      '8. 不要编造路径；不确定的路径、文件名写成开头的变量（例如 DATA_DIR=…），方便用户修改。命令要可以重复运行（已存在的目录/文件要能跳过）。',
+      '9. 用户把终端运行后的输出发给你时：先用一句话判断这些命令有没有成功；出错就说原因，再给出修复用的完整命令；成功就直接给下一步要运行的命令。',
+      hardwareRule(hardware).replace(/^7\./, '10.') + '（在终端里，上面提到的 %pip 一律换成 pip；查看显卡用对应厂商的 nvidia-smi / rocm-smi。）'
     ].join('\n');
   }
   if (mode === 'chat') {
     return [
-      `你是 ${platform || 'Jupyter'} Notebook 旁边的问答助手，用中文回答用户的问题（编程、Python、深度学习、训练调参、平台使用、报错原因等）。`,
+      `你是 ${platform || 'Jupyter'} Notebook 旁边的问答助手，像普通的网页版聊天助手一样用中文回答用户的问题（编程、Python、深度学习、训练调参、平台使用、报错原因等）。`,
       '规则：',
-      '1. 直接回答问题，条理清楚，用简短的段落或列表；不需要每次都写完整代码。',
-      '2. 需要示例代码或命令时，放在 ``` 代码块里并标明语言（```python / ```bash）。',
+      '1. 直接回答问题，条理清楚，用简短的段落或列表。除非用户明确要求写代码或命令，否则不要写代码，用文字解释原理、原因和做法。',
+      '2. 用户明确要求写代码或命令时，才把它放在 ``` 代码块里并标明语言（```python / ```bash）；平时提到函数名、命令名用行内文字就行，不要贴代码块。',
       china
         ? '3. 这是国内平台，涉及安装依赖或下载模型时，提醒用清华 PyPI 镜像（https://pypi.tuna.tsinghua.edu.cn/simple）和 hf-mirror.com。'
         : '3. 这是海外平台，正常使用 PyPI 和 Hugging Face 即可。',
       '4. 不确定的事情直接说不确定，不要编造 API、参数或路径。',
-      '5. 回答和硬件有关的问题（能不能跑、batch size、显存够不够等）时，按下面这份配置来回答。',
+      '5. 回答和硬件有关的问题（能不能跑、batch size、显存够不够等）时，按下面这份配置来回答。下面这条规则是用户让你写代码时才用的：用户没要求写代码，就只用它来了解运行环境，不要因此主动写检测代码或示例代码。',
       hardwareRule(hardware)
     ].join('\n');
   }
@@ -183,18 +186,25 @@ const FIX_LINES = {
   terminal: '请修复下面这个单元格的报错：先用一两句话说原因，再用一个 ```bash 代码块给出修复用的完整命令。',
   chat: '请解释下面这个单元格为什么报错，并说明怎么修。'
 };
+// 终端：用户自己在终端里运行命令，扩展读到的是终端里最近的输出，没法预先判断成败，让模型自己判断
+const CHECK_LINES = {
+  notebook: '下面是刚运行完的单元格和它的运行输出。请先判断这一步有没有成功：出错就输出修好后的完整单元格；成功就输出下一步需要运行的完整单元格。',
+  terminal: '下面是用户刚在终端里运行的命令，以及终端里最近的输出。请先用一句话判断这些命令有没有成功：出错就说原因，再用一个 ```bash 代码块给出修复用的完整命令；成功就直接用一个 ```bash 代码块给出下一步要运行的命令。',
+  chat: '下面是终端里最近的输出。请判断有没有成功、出错的原因是什么，以及下一步该做什么（用文字说明，不用写代码）。'
+};
 const NEXT_LINES = {
   notebook: '下面是刚运行完的单元格和它的运行输出。请根据输出判断这一步有没有成功，然后输出下一步需要运行的完整单元格（如果输出里有问题，就输出修好后的完整单元格）。',
   terminal: '下面是刚运行完的单元格和它的运行输出。请根据输出判断这一步有没有成功，然后用一个 ```bash 代码块给出下一步需要运行的命令。',
   chat: '请解读下面这个单元格的运行输出，判断有没有成功，并说明下一步该做什么。'
 };
-export function buildUserMessage({ request, cellCode, errorOutput, fix, isError, mode = 'notebook', attachments = [] }) {
+export function buildUserMessage({ request, cellCode, errorOutput, fix, isError, mode = 'notebook', attachments = [], terminal = false, lastCommands = '' }) {
   mode = normalizeMode(mode);
   const parts = [];
-  if (fix) parts.push(isError === false ? NEXT_LINES[mode] : FIX_LINES[mode]);
+  if (fix) parts.push(terminal ? CHECK_LINES[mode] : (isError === false ? NEXT_LINES[mode] : FIX_LINES[mode]));
   if (request) parts.push('需求：' + request);
+  if (lastCommands) parts.push('用户刚才运行的命令（你上一次给出的）：\n```bash\n' + lastCommands.slice(0, 3000) + '\n```');
   if (cellCode) parts.push('当前单元格代码：\n```' + (/^%%(bash|sh)\b/.test(cellCode) ? 'bash' : 'python') + '\n' + cellCode.slice(0, 8000) + '\n```');
-  if (errorOutput) parts.push((fix && isError === false ? '运行输出' : '最近的报错输出') + '：\n```\n' + errorOutput.slice(-4000) + '\n```');
+  if (errorOutput) parts.push((terminal ? '终端最近的输出' : fix && isError === false ? '运行输出' : '最近的报错输出') + '：\n```\n' + errorOutput.slice(-4000) + '\n```');
   for (const a of attachments) {
     if (a.kind !== 'file' || !a.text) continue;
     parts.push(`附件「${a.name}」${a.truncated ? '（太长，只附上了前 ' + Math.round(a.text.length / 1024) + ' KB）' : ''}：\n\`\`\`${a.lang || ''}\n${a.text}\n\`\`\``);
@@ -264,6 +274,32 @@ export function extractShell(text) {
   const pick = blocks.find((b) => /^(bash|sh|shell|zsh|console|shellsession)$/.test(b.lang)) || blocks.find((b) => !b.lang) || blocks[0];
   const body = pick ? pick.body : text;
   return body.split('\n').map((l) => l.replace(/^\$ /, '')).join('\n').replace(/\s+$/, '').replace(/^\s*\n/, '') + '\n';
+}
+
+// 终端命令是粘贴进交互式终端的：整理一下，避免把终端搞坏。返回 {code, notes}
+//  - Tab → 空格（粘贴时 Tab 会触发补全）；去掉 \r
+//  - 顶层的 exit、set -e/-u/-o …（会让终端会话退出）注释掉；here-document 里面（脚本文件内容）不动
+export function normalizeShell(cmds) {
+  const notes = [];
+  let heredoc = null; // 当前 here-document 的结束标记
+  let tabs = false, dropped = 0;
+  const lines = String(cmds || '').replace(/\r/g, '').split('\n').map((l) => {
+    if (heredoc) {
+      if (l.trim() === heredoc) heredoc = null;
+      return l;
+    }
+    if (l.includes('\t')) { tabs = true; l = l.replace(/\t/g, '    '); }
+    const h = l.match(/(?<!<)<<(?!<)-?\s*(?:'([^']+)'|"([^"]+)"|\\?([A-Za-z_]\w*))/);
+    if (h && !/^\s*#/.test(l)) heredoc = h[1] || h[2] || h[3];
+    if (/^\s*(exit(\s+\d+)?|set\s+[-+][euxo]\w*(\s+\w+)?|exec\s+.*|trap\s+.*EXIT.*)\s*(;|#.*)?$/.test(l)) {
+      dropped++;
+      return l.replace(/^(\s*)/, '$1# （已注释，粘贴到终端会让会话退出）');
+    }
+    return l;
+  });
+  if (tabs) notes.push('命令里的 Tab 已换成空格（粘贴时 Tab 会触发终端补全）');
+  if (dropped) notes.push(`有 ${dropped} 行 exit / set -e / exec 之类的命令，粘贴到终端会让会话退出，已自动注释掉`);
+  return { code: lines.join('\n'), notes };
 }
 
 // 终端命令放进 Notebook 运行：%%bash 单元格（已经是 %%bash / %%sh 开头的不重复加）

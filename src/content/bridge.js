@@ -3,7 +3,7 @@
 // 回报自己的结果（含“不是 Notebook”），侧边栏根据 sender.frameId 选出真正有
 // Notebook 的那个 frame，之后的操作都用 {frameId} 只发给它。
 (() => {
-  const BUILD = '0.1.14'; // 必须和 manifest 的 version、page.js 的 BUILD 一致
+  const BUILD = '0.1.15'; // 必须和 manifest 的 version、page.js 的 BUILD 一致
   if (window.__nbacBridgeBuild === BUILD) return;
   window.__nbacBridgeLoaded = true;
   window.__nbacBridgeBuild = BUILD;

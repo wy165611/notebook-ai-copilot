@@ -1,6 +1,6 @@
 import {
   PRESETS, PROVIDER_IDS, THINKING_LEVELS, loadSettings, saveSettings, updateProvider,
-  supportedThinking, listModels, generate, buildUserMessage, extractCode, extractShell, bashCell,
+  supportedThinking, listModels, generate, buildUserMessage, extractCode, extractShell, normalizeShell, bashCell,
   MODE_LABELS, normalizeMode, attachmentKind, prepareTextAttachment, MAX_FILE_CHARS
 } from '../lib/llm.js';
 import { ERR_READ_CODE, parseErrLine } from '../lib/errread.js';
@@ -33,7 +33,7 @@ async function activeTabId() {
 }
 function withTimeout(p, ms) { return Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), ms))]); }
 
-const KIND_RANK = { jupyterlab: 3, 'vscode-notebook': 3, 'classic-notebook': 2, 'kaggle-dom': 1 };
+const KIND_RANK = { jupyterlab: 3, 'vscode-notebook': 3, 'classic-notebook': 2, 'jupyterlab-terminal': 2, 'kaggle-dom': 1 };
 let detectRetry = null;
 
 // 向标签页里所有 frame 广播检测请求，收集各 frame 的回报（sender.frameId），选出真正有 Notebook 的 frame
@@ -141,6 +141,43 @@ async function refreshPageHw(reports) {
   } catch { /* ignore */ }
 }
 
+// ---------- 自动识别当前界面是 Notebook 还是终端，并切换到对应的模式 ----------
+// 每 2 秒问一次页面：JupyterLab 当前显示的标签页是 Notebook 还是终端。界面变了就自动切换模式；
+// 你手动选的模式会一直保留到下一次界面变化。聊天模式不会被自动切走。
+const VIEW_LABEL = { notebook: 'Notebook', terminal: '终端' };
+let lastView = null;
+let viewSwitched = false;
+let viewBusy = false;
+function showView(view) {
+  const e = $('viewLine');
+  if (!target || !view) { e.hidden = true; return; }
+  e.hidden = false;
+  e.textContent = '当前界面：' + VIEW_LABEL[view] + (viewSwitched ? '（已自动切换到「' + MODE_LABELS[view] + '」模式）' : '');
+}
+async function applyView(view) {
+  if (!view || !target) { showView(null); return; }
+  if (view !== lastView) {
+    lastView = view;
+    viewSwitched = false;
+    if (currentMode() !== 'chat' && currentMode() !== view) { await setMode(view); viewSwitched = true; }
+  }
+  showView(view);
+}
+async function pollView() {
+  const t = target;
+  if (!t || viewBusy || document.hidden) return;
+  viewBusy = true;
+  try {
+    const r = await withTimeout(chrome.tabs.sendMessage(t.tabId, { type: 'nbac', action: 'viewInfo', args: {} }, { frameId: t.frameId }), 3000);
+    const res = r && r.ok !== false ? (r.result !== undefined ? r.result : r) : null;
+    if (!res || target !== t) return;
+    await applyView(res.view);
+    // 之前只有终端，现在打开了 Notebook：重新检测，换成 Notebook 适配器
+    if (res.view === 'notebook' && t.kind === 'jupyterlab-terminal') detect();
+  } catch { /* 页面还没准备好 */ } finally { viewBusy = false; }
+}
+setInterval(pollView, 2000);
+
 async function detect(attempt = 0, opts = {}) {
   clearTimeout(detectRetry);
   target = null;
@@ -170,6 +207,7 @@ async function detect(attempt = 0, opts = {}) {
     pageHw = mergeHardware(await savedProbe(hwKey), lastHints);
     target.hardware = pageHw;
     showHw(pageHw);
+    applyView(best.view);
     refreshPageHw(reports).then(() => autoProbe(target)); // 页面文字扫描放在检测之后做，避免拖慢检测
     if (best.notice) showNotice(best.notice);
     else if (injected && injected.ok) showNotice('这个网页没有自动加载助手，已经在当前网页里手动加载好了（刷新网页后会自动重新加载）。');
@@ -178,6 +216,7 @@ async function detect(attempt = 0, opts = {}) {
     return target;
   }
   showHw(null);
+  showView(null);
   const hint = reports.find((r) => r.hint);
   const inj = injectState.get(tabId);
   const kind = inj && !inj.ok ? classifyInjectError(inj.error, tabUrl) : null;
@@ -749,7 +788,7 @@ async function readVsError(onStatus) {
   return null;
 }
 
-function renderBot(m, { text, code, meta, error, onRan, info, mode, rec }) {
+function renderBot(m, { text, code, meta, error, onRan, info, mode, rec, notes }) {
   mode = normalizeMode(mode);
   m.className = 'msg bot' + (error ? ' err' : '') + ' mode-' + mode;
   m.innerHTML = '';
@@ -788,9 +827,10 @@ function renderBot(m, { text, code, meta, error, onRan, info, mode, rec }) {
   const btns = [bIns, bRun, bOk].filter(Boolean);
 
   const setResult = (t, err) => { result.textContent = t; result.className = 'result' + (err ? ' err' : ''); };
+  if (notes) setResult('提示：' + notes + '。');
   bCopy.addEventListener('click', async () => {
     await copyText(ta.value, ta);
-    setResult('已复制');
+    setResult(term ? '已复制。到终端里粘贴并回车运行，运行完点「+ → 修复当前报错」，我会自动读取终端里的输出，给你下一步' : '已复制');
   });
   const doInsert = async (andRun) => {
     if (!ta.value.trim()) { setResult('没有可插入的代码', true); return; }
@@ -848,7 +888,7 @@ function renderChatLog() {
     else {
       const m = el('div', 'msg bot');
       $('messages').appendChild(m);
-      renderBot(m, { text: r.text || '', code: r.code || '', meta: r.meta, error: r.error, info: r.info, mode: r.mode, rec: r });
+      renderBot(m, { text: r.text || '', code: r.code || '', meta: r.meta, error: r.error, info: r.info, mode: r.mode, rec: r, notes: r.notes });
     }
   }
   $('welcome').hidden = chatLog.length > 0;
@@ -870,6 +910,7 @@ function renderMode() {
   });
   document.querySelectorAll('.chips[data-mode]').forEach((c) => { c.hidden = c.dataset.mode !== mode; });
   $('prompt').placeholder = PLACEHOLDERS[mode];
+  $('fixError').textContent = mode === 'terminal' ? '修复当前报错（读取终端里最近的输出，给下一步）' : '修复当前报错（读取运行结果，给下一步）';
   document.body.dataset.mode = mode;
   $('plusBtn').title = mode === 'chat' ? '添加图片或文件 / 附带上下文' : '附带上下文 / 修复报错 / 检测硬件';
 }
@@ -911,13 +952,29 @@ async function send(fix, opts = {}) {
     await refreshSettings();
     const useCtx = settings.includeContext || fix;
     let ctx = { cellCode: '', errorOutput: '', platform: target ? target.platform : '' };
-    if (useCtx) {
-      try { ctx = await call('getContext', {}); } catch (e) { if (fix) throw e; }
+    // 终端模式的「修复当前报错」：用户是自己在终端里运行命令的，读终端里最近的输出（没有终端时才退回读 Notebook 单元格）
+    let termOut = null;
+    if (fix && mode === 'terminal' && !opts.run) {
+      try { termOut = await call('getTerminalOutput', {}); } catch { termOut = null; }
+    }
+    const termFound = !!(termOut && termOut.found);
+    if (useCtx && !termFound) {
+      try { ctx = await call('getContext', {}); } catch (e) {
+        if (fix && mode === 'terminal') throw new Error('没有找到终端。请在 JupyterLab 里打开一个终端（File → New → Terminal），把命令粘贴进去运行，运行完再点「修复当前报错」。');
+        if (fix) throw e;
+      }
     }
     if (ctx.notice) showNotice(ctx.notice);
     let extraRequest = request;
     let output = '', isError;
-    if (fix) {
+    let lastCommands = '';
+    if (fix && termFound) {
+      output = termOut.text || request;
+      if (!output) throw new Error('终端里还没有读到输出。请先把命令粘贴到终端里运行，运行完再点「修复当前报错」。如果一直读不到，把终端里的输出复制到输入框，再点一次。');
+      if (!termOut.text) extraRequest = '';
+      const prev = chatLog.slice().reverse().find((x) => x.role === 'bot' && x.mode === 'terminal' && x.code);
+      lastCommands = prev ? prev.code : '';
+    } else if (fix) {
       const run = opts.run || ctx.run;
       if (opts.run || (run && run.executed && run.output)) { output = run.output || ''; isError = !!run.error; }
       if (!output && !opts.run && ctx.errorOutput) { output = ctx.errorOutput; isError = true; }
@@ -938,21 +995,23 @@ async function send(fix, opts = {}) {
     }
     let userMessage = buildUserMessage({
       request: fix ? (extraRequest ? '（补充说明）' + extraRequest : '') : request,
-      cellCode: useCtx ? ctx.cellCode : '', errorOutput: fix ? output : (useCtx ? ctx.errorOutput : ''), fix, isError, mode,
-      attachments: atts
+      cellCode: useCtx && !termFound ? ctx.cellCode : '', errorOutput: fix ? output : (useCtx ? ctx.errorOutput : ''), fix, isError, mode,
+      attachments: atts, terminal: termFound, lastCommands
     });
     if (!userMessage.trim()) userMessage = '请看附件。';
     const images = atts.filter((a) => a.kind === 'image');
     const r = await generate(settings, { platform: ctx.platform || (target && target.platform), hardware: pageHw, userMessage, history, mode, images });
-    const code = mode === 'chat' ? '' : mode === 'terminal' ? extractShell(r.text) : extractCode(r.text);
+    let code = mode === 'chat' ? '' : mode === 'terminal' ? extractShell(r.text) : extractCode(r.text);
+    let notes = '';
+    if (mode === 'terminal') { const n = normalizeShell(code); code = n.code; notes = n.notes.join('；'); }
     const llm = mode === 'chat' ? r.text : '```' + (mode === 'terminal' ? 'bash' : 'python') + '\n' + code + '```';
     updateRecord(uRec, { llm: userMessage.slice(0, LLM_MAX) });
     const lvl = THINKING_LEVELS.find((l) => l.id === settings.thinking);
     const meta = `${r.providerLabel} · ${r.model}` + (settings.thinking !== 'default' ? ` · 思考：${lvl.label}` : '') +
-      (useCtx && (ctx.cellCode || ctx.errorOutput || output) ? ' · 已附带上下文' : '') + (images.length ? ` · ${images.length} 张图片` : '') +
-      (fix ? (isError === false ? ' · 已读取运行输出' : ' · 已读取报错') : '') + (mode !== 'notebook' ? ` · ${MODE_LABELS[mode]}模式` : '');
-    const bRec = record({ role: 'bot', mode, text: r.text, code, meta, llm: llm.slice(0, LLM_MAX) }, convId);
-    renderBot(pending, { text: r.text, code, meta, mode, rec: bRec });
+      (useCtx && !termFound && (ctx.cellCode || ctx.errorOutput || output) ? ' · 已附带上下文' : '') + (images.length ? ` · ${images.length} 张图片` : '') +
+      (fix ? (termFound ? ' · 已读取终端输出' : isError === false ? ' · 已读取运行输出' : ' · 已读取报错') : '') + (mode !== 'notebook' ? ` · ${MODE_LABELS[mode]}模式` : '');
+    const bRec = record({ role: 'bot', mode, text: r.text, code, meta, notes: notes || undefined, llm: llm.slice(0, LLM_MAX) }, convId);
+    renderBot(pending, { text: r.text, code, meta, mode, rec: bRec, notes });
     if (r.notice) showNotice(r.notice);
   } catch (e) {
     const error = String(e.message || e);
@@ -1021,6 +1080,7 @@ let probeWait = false; // probeFail 只是“在等别的单元格跑完”，�
 let probeRunning = false; // 正在后台检测 // 自动检测没成功的原因，显示在硬件那一行
 async function autoProbe(t) {
   if (!t || t !== target || autoProbing || !hwKey) return;
+  if (t.kind === 'jupyterlab-terminal') return; // 只有终端、没有内核可用：等打开 Notebook 后再检测
   if ((await savedProbe(hwKey))) return;
   const key = hwKey;
   autoProbing = true;

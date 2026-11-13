@@ -10,7 +10,7 @@
 (() => {
   // 扩展更新后，网页里可能还留着旧版脚本（页面世界里的脚本不会随扩展重新加载而消失）。
   // 所以按版本判断是否已加载，消息事件名也带版本号，旧脚本收不到新版的请求。BUILD 必须和 manifest 的 version 一致（单元测试会检查）
-  const BUILD = '0.1.14';
+  const BUILD = '0.1.15';
   if (window.__nbacPageBuild === BUILD) return;
   window.__nbacPageLoaded = true;
   window.__nbacPageBuild = BUILD;
@@ -1066,6 +1066,116 @@
     return null;
   }
 
+  // ---------- JupyterLab 终端：识别当前界面是不是终端，并读取终端输出 ----------
+  // xterm 常用 canvas / WebGL 渲染，终端文字不在 DOM 里，页面里也拿不到 xterm 实例。
+  // 所以改为“旁听”：打开终端界面后，给同一个终端再开一个只读的 WebSocket（/terminals/websocket/<名字>，
+  // 服务端会把输出广播给所有连接），把之后的输出累积在页面里；什么都不发送，不影响你正在用的终端。
+  // 读不到时（比如服务不让连）退回读 DOM 里的文字（xterm DOM 渲染器 / 无障碍树，只有可见的几十行）。
+  const terminalView = {
+    node() {
+      const all = Array.from(document.querySelectorAll('.jp-Terminal')).filter(visible);
+      return all.find((n) => n.contains(document.activeElement)) || all[0] || null;
+    },
+    detect() { return !!this.node(); },
+    // 终端名字：标签页文字是 “Terminal 1” / “终端 1”，名字就是后面的 1
+    name(node) {
+      for (let e = node; e && e !== document.body; e = e.parentElement) {
+        if (!e.id) continue;
+        let tab = null;
+        try { tab = document.querySelector('[data-id="' + CSS.escape(e.id) + '"]'); } catch { /* ignore */ }
+        const m = tab && (tab.textContent || '').match(/(?:Terminal|终端)\s*(\S+)/i);
+        if (m) return m[1];
+      }
+      return '';
+    }
+  };
+  const termTaps = new Map(); // 终端名 -> {text, state, ws}
+  function jupyterConfig() {
+    try { return JSON.parse(document.getElementById('jupyter-config-data').textContent) || {}; } catch { return {}; }
+  }
+  function openTap(base, name, prevText) {
+    const cfg = jupyterConfig();
+    const url = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + base + 'terminals/websocket/' + encodeURIComponent(name) +
+      (cfg.token ? '?token=' + encodeURIComponent(cfg.token) : '');
+    const tap = { name, text: prevText || '', state: 'connecting' };
+    try { tap.ws = new WebSocket(url); } catch (e) { tap.state = 'error'; return tap; }
+    tap.ws.onopen = () => { tap.state = 'open'; };
+    tap.ws.onmessage = (ev) => {
+      try {
+        const m = JSON.parse(ev.data);
+        if (Array.isArray(m) && m[0] === 'stdout' && typeof m[1] === 'string') {
+          tap.text += m[1];
+          if (tap.text.length > 300000) tap.text = tap.text.slice(-200000);
+        }
+      } catch { /* ignore */ }
+    };
+    tap.ws.onerror = () => { tap.state = 'error'; };
+    tap.ws.onclose = () => { if (tap.state !== 'error') tap.state = 'closed'; };
+    return tap;
+  }
+  function ensureTap(base, name) {
+    const old = termTaps.get(name);
+    if (old && (old.state === 'open' || old.state === 'connecting')) return old;
+    const tap = openTap(base, name, old && old.text);
+    termTaps.set(name, tap);
+    return tap;
+  }
+  async function terminalTarget(node) {
+    let base = jupyterConfig().baseUrl || '';
+    if (!base) { const j = await findJupyterBase(); base = j ? j.base : ''; }
+    if (!base) return null;
+    base = base.replace(/\/?$/, '/');
+    let name = terminalView.name(node);
+    if (!name) { // 标签页文字认不出来：用最近有活动的终端
+      try {
+        const r = await withTimeoutP(fetch(base + 'api/terminals', { credentials: 'same-origin', headers: xsrfHeaders(false) }), 6000);
+        const list = r.ok ? await r.json() : [];
+        list.sort((a, b) => String(b.last_activity || '').localeCompare(String(a.last_activity || '')));
+        name = list[0] && list[0].name;
+      } catch { /* ignore */ }
+    }
+    return name ? { base, name } : null;
+  }
+  async function ensureTapSoon() {
+    try {
+      const node = terminalView.node();
+      const t = node && await terminalTarget(node);
+      if (t) ensureTap(t.base, t.name);
+    } catch { /* ignore */ }
+  }
+  async function readTerminal() {
+    const node = terminalView.node();
+    if (!node) return { found: false };
+    let tap = null, name = '';
+    try {
+      const t = await terminalTarget(node);
+      if (t) {
+        name = t.name;
+        const fresh = !termTaps.has(t.name);
+        tap = ensureTap(t.base, t.name);
+        await waitFor(() => tap.state !== 'connecting', 3000);
+        if (fresh) await sleep(1200); // 刚连上时服务端会回放最近的几段输出，等它到齐
+      }
+    } catch { /* ignore */ }
+    let text = tap ? H.cleanTerminalText(tap.text, 6000) : '';
+    let via = text ? 'websocket' : '';
+    if (!text) {
+      const rows = node.querySelector('.xterm-rows') || node.querySelector('.xterm-accessibility-tree');
+      text = H.cleanTerminalText(rows ? rows.innerText || rows.textContent : '', 6000);
+      if (text) via = 'dom';
+    }
+    return { found: true, name, text, via, tapState: tap ? tap.state : null };
+  }
+
+  // 当前界面是 Notebook 还是终端（JupyterLab 的标签页一次只显示一个；分屏同时显示时看焦点在哪）
+  function currentView() {
+    const term = terminalView.node();
+    const nbNode = jupyterLab.notebookNode();
+    if (term && nbNode) return nbNode.contains(document.activeElement) ? 'notebook' : (term.contains(document.activeElement) ? 'terminal' : 'notebook');
+    if (term) return 'terminal';
+    return pickAdapter() ? 'notebook' : null;
+  }
+
   function pickAdapter() {
     if (jupyterLab.detect()) return jupyterLab;
     if (classicNotebook.detect()) return classicNotebook;
@@ -1138,6 +1248,11 @@
     async detect() {
       const a = pickAdapter();
       if (!a) {
+        // 只打开了终端（没有 Notebook）：也算已连接，侧边栏可以读终端输出
+        if (terminalView.detect()) {
+          ensureTapSoon();
+          return { detected: true, platform: platformName(), kind: 'jupyterlab-terminal', cellCount: 0, view: 'terminal', hw: hardwareHint() };
+        }
         const r = { detected: false, platform: platformName() };
         // 飞桨 AI Studio 外层的项目编辑器（/project/edit/…）不是 JupyterLab，提示进入 BML Codelab
         if (r.platform === '飞桨 AI Studio' && window.top === window && /\/project\/(edit|detail)\//.test(location.pathname)) {
@@ -1157,7 +1272,8 @@
       }
       const nb = a === jupyterLab ? jupyterLab.notebookNode() : null;
       const cellCount = nb ? nb.querySelectorAll('.jp-Cell').length : (a === kaggle ? kaggle.editors().length : (a === vscodeNotebook ? vscodeNotebook.total() : 0));
-      const r = { detected: true, platform: platformName(), kind: a.kind, cellCount, viaApp: a === jupyterLab && !!jupyterLab.panelWidget() };
+      const r = { detected: true, platform: platformName(), kind: a.kind, cellCount, viaApp: a === jupyterLab && !!jupyterLab.panelWidget(), view: currentView() };
+      if (r.view === 'terminal') ensureTapSoon();
       if (a === jupyterLab && !r.viaApp) r.viaModel = !!(await labFinder.widgetFor(nb));
       if (a === vscodeNotebook) r.notice = vscodeNotebook.kernelHint();
       r.hw = hardwareHint();
@@ -1166,6 +1282,13 @@
     readHardwareProbe,
     readErrorWriteBack,
     runStatus,
+    // 侧边栏定时询问：当前界面是 Notebook 还是终端（终端界面顺便确保已开始旁听输出）
+    viewInfo() {
+      const view = currentView();
+      if (view === 'terminal') ensureTapSoon();
+      return { view, terminal: terminalView.detect() };
+    },
+    getTerminalOutput: readTerminal,
     // 页面里没有 JupyterLab 内核对象时（VS Code 网页版），试着通过同源的 Jupyter 服务接口开临时内核静默检测
     async restProbe({ code, timeoutMs }) {
       if (typeof code !== 'string' || !/NBAC_HW/.test(code)) throw new Error('只能运行内置的检测代码');
