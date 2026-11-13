@@ -1,7 +1,7 @@
 // 纯函数（不碰 DOM），给 page.js 用，也方便 node 单元测试（tests/unit_test.mjs 用 vm 加载本文件）。
 (() => {
   const root = typeof window !== 'undefined' ? window : globalThis;
-  const BUILD = '0.1.14'; // 和 manifest 的 version 一致；旧版留在网页里的 helpers 会被替换
+  const BUILD = '0.1.15'; // 和 manifest 的 version 一致；旧版留在网页里的 helpers 会被替换
   if (root.__nbacHelpers && root.__nbacHelpers.build === BUILD) return;
 
   // 比较用：去掉 \r、每行行尾空白、首尾空行
@@ -108,5 +108,33 @@
     return /Traceback \(most recent call last\)|^\s*\w*(?:Error|Exception)\b[^\n]*(?::|$)|CalledProcessError|returned non-zero exit status|command not found|No such file or directory|^ERROR:/m.test(t);
   }
 
-  root.__nbacHelpers = { build: BUILD, normCode, codeMatches, joinViewLines, vscodeKernelHint, platformFromHost, parseHardwareHints, looksLikeError };
+  // 终端（xterm / terminado）的原始输出 → 人能读的文字：去掉颜色和光标控制序列，
+  // 处理回车覆盖（进度条）、退格、“清除到行尾”，只保留最后 maxChars 个字符
+  function cleanTerminalText(raw, maxChars) {
+    let t = String(raw || '')
+      .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, '')   // OSC（设置标题等）
+      .replace(/\x1b\[0?K/g, '\uE000')                       // 清除到行尾：下面按列处理
+      .replace(/\x1b\[2K/g, '\uE001')                        // 清除整行
+      .replace(/\x1b\[[0-9;?<=>]*[ -\/]*[@-~]/g, '')         // 其余 CSI（颜色、光标移动、括号粘贴模式开关等）
+      .replace(/\x1b[()][A-Za-z0-9]/g, '')
+      .replace(/\x1b[=>78MHc]/g, '')
+      .replace(/[\x00-\x07\x0b\x0c\x0e-\x1f]/g, '');         // 其余控制字符（保留 \b \t \n \r）
+    const out = [];
+    for (const line of t.split('\n')) {
+      let buf = [], col = 0;
+      for (const ch of line) {
+        if (ch === '\r') col = 0;
+        else if (ch === '\b') col = Math.max(0, col - 1);
+        else if (ch === '\uE000') buf.length = Math.min(buf.length, col);
+        else if (ch === '\uE001') { buf = []; col = 0; }
+        else { buf[col] = ch; col++; }
+      }
+      out.push(buf.join('').replace(/\s+$/, ''));
+    }
+    t = out.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+    const max = maxChars || 6000;
+    return t.length > max ? t.slice(-max) : t;
+  }
+
+  root.__nbacHelpers = { build: BUILD, normCode, codeMatches, joinViewLines, vscodeKernelHint, platformFromHost, parseHardwareHints, looksLikeError, cleanTerminalText };
 })();

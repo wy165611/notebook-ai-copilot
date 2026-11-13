@@ -46,6 +46,7 @@
   </aside>
   <div id="status" class="status">正在检测当前页面的 Notebook…</div>
   <div id="hw" class="hw" hidden></div>
+  <div id="viewLine" class="hw" hidden></div>
   <div id="siteAccess" class="site-access" hidden>
     <button class="act primary" id="enableSite">在此网站启用助手</button>
     <div class="site-hint" id="siteHint"></div>
@@ -64,6 +65,7 @@
         <button class="chip" data-prompt="查看显卡、显存、CPU、内存和磁盘空间">查看机器配置</button>
         <button class="chip" data-prompt="用镜像安装 ultralytics，并检查 PyTorch 能不能用 GPU">安装 ultralytics</button>
         <button class="chip" data-prompt="用 hf-mirror 下载一个 Hugging Face 模型到 ./models 目录，模型名放在开头变量里">下载 Hugging Face 模型</button>
+        <button class="chip" data-action="fix">读取终端输出，继续</button>
       </div>
       <div class="chips" data-mode="chat" hidden>
         <button class="chip" data-prompt="我的显卡跑 YOLO11m 训练，batch size 设多少合适？">batch size 怎么选</button>
