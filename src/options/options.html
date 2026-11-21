@@ -2,41 +2,273 @@
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Notebook AI 助手 · 设置</title>
   <link rel="stylesheet" href="../sidepanel/panel.css" />
   <style>
-    body { display: block; max-width: 680px; margin: 24px auto; padding: 0 16px; }
-    h2 { font-weight: 500; }
-    .card { border: 1px solid var(--line); border-radius: 16px; padding: 14px 16px; margin: 14px 0; }
-    .card h3 { margin: 0 0 6px; font-size: 15px; font-weight: 500; display: flex; justify-content: space-between; }
-    label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 4px; }
-    input, select { width: 100%; border: 1px solid var(--line); border-radius: 8px; padding: 8px; font: 13px var(--font); outline: none; }
-    input:focus, select:focus { border-color: var(--blue); }
-    .hint { font-size: 12px; color: var(--muted); margin: 6px 0 0; }
-    .btns { display: flex; gap: 8px; margin-top: 16px; }
-    .btn { border: 1px solid var(--line); background: #fff; border-radius: 999px; padding: 8px 18px; }
-    .btn.primary { background: var(--blue); border-color: var(--blue); color: #fff; }
-    #message { margin-top: 10px; font-size: 13px; } #message.err { color: #b3261e; }
-    .tag { font-size: 11px; color: var(--blue); background: var(--blue-soft); border-radius: 999px; padding: 2px 8px; font-weight: 400; }
+    body {
+      display: block;
+      height: auto;
+      min-height: 100%;
+      background: var(--bg-subtle);
+      padding: 28px 18px 48px;
+    }
+    .page { max-width: 840px; margin: 0 auto; }
+    .hero {
+      background: var(--bg);
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      padding: 18px 20px;
+      box-shadow: var(--shadow-xs);
+      margin-bottom: 16px;
+    }
+    .hero-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-bottom: 8px;
+    }
+    .hero h2 {
+      margin: 0;
+      font-size: 20px;
+      font-weight: 600;
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--text);
+    }
+    .hero h2::before {
+      content: "";
+      width: 11px;
+      height: 11px;
+      border-radius: 3px;
+      transform: rotate(45deg);
+      background: linear-gradient(135deg, #4285f4 0%, #9b72cb 55%, #d96570 100%);
+      box-shadow: 0 0 0 2px rgba(66, 133, 244, 0.14);
+      flex: none;
+    }
+    .privacy-badge {
+      font-size: 11.5px;
+      font-weight: 500;
+      color: var(--success);
+      background: var(--success-bg);
+      border: 1px solid var(--success-border);
+      border-radius: 999px;
+      padding: 3px 10px;
+    }
+    .hint { font-size: 12.5px; color: var(--muted); margin: 6px 0 0; line-height: 1.55; }
+    .hint code {
+      font: 11.5px var(--mono);
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 5px;
+      padding: 1px 5px;
+      color: var(--text-2);
+    }
+    .hint a { color: var(--blue); text-decoration: none; font-weight: 500; }
+    .hint a:hover { text-decoration: underline; }
+
+    .global-card {
+      background: var(--bg);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 14px 18px 16px;
+      box-shadow: var(--shadow-xs);
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 14px;
+      margin-bottom: 16px;
+    }
+    .field label {
+      display: block;
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--text-2);
+      margin: 0 0 6px;
+    }
+    .cards-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+      gap: 14px;
+      margin-bottom: 16px;
+    }
+    .card {
+      background: var(--bg);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 16px 18px;
+      box-shadow: var(--shadow-xs);
+      transition: border-color 150ms ease, box-shadow 150ms ease;
+    }
+    .card.active-card {
+      border-color: var(--blue-border);
+      box-shadow: 0 0 0 2px rgba(11, 87, 208, 0.08), var(--shadow-sm);
+    }
+    .card h3 {
+      margin: 0 0 10px;
+      font-size: 15px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .card-badges { display: inline-flex; align-items: center; gap: 6px; }
+    .card label {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--muted);
+      margin: 11px 0 5px;
+    }
+    .card label a { color: var(--blue); text-decoration: none; font-weight: 500; }
+    .card label a:hover { text-decoration: underline; }
+
+    input, select {
+      width: 100%;
+      border: 1px solid var(--line-strong);
+      border-radius: 10px;
+      padding: 8px 11px;
+      font: 13px var(--font);
+      color: var(--text);
+      background: var(--bg);
+      outline: none;
+      transition: border-color 150ms ease, box-shadow 150ms ease;
+    }
+    input[data-f="baseUrl"], input[data-f="model"], input[data-f="apiKey"] { font-family: var(--mono); font-size: 12.5px; }
+    input:focus, select:focus { border-color: var(--blue); box-shadow: var(--shadow-focus); }
+
+    .input-wrap { position: relative; display: flex; align-items: center; }
+    .input-wrap input { padding-right: 38px; }
+    .toggle-eye {
+      position: absolute;
+      right: 6px;
+      border: 0;
+      background: transparent;
+      color: var(--muted);
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .toggle-eye:hover { background: var(--surface); color: var(--text); }
+    .toggle-eye svg { width: 17px; height: 17px; }
+
+    .sug-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+    .sug-chip {
+      border: 1px solid var(--line);
+      background: var(--bg-subtle);
+      color: var(--text-2);
+      border-radius: 999px;
+      padding: 3px 9px;
+      font: 11.5px var(--mono);
+    }
+    .sug-chip:hover { background: var(--surface); border-color: var(--line-strong); }
+    .sug-chip.active { background: var(--blue-soft); border-color: var(--blue-border); color: var(--blue); font-weight: 500; }
+
+    .tag {
+      font-size: 11px;
+      color: var(--blue);
+      background: var(--blue-soft);
+      border: 1px solid var(--blue-border);
+      border-radius: 999px;
+      padding: 2px 9px;
+      font-weight: 500;
+    }
+    .tag.default-tag {
+      color: var(--success);
+      background: var(--success-bg);
+      border-color: var(--success-border);
+    }
+
+    .action-bar {
+      position: sticky;
+      bottom: 12px;
+      background: rgba(255, 255, 255, 0.94);
+      backdrop-filter: blur(10px);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 12px 16px;
+      box-shadow: var(--shadow-md);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+    .btns { display: flex; gap: 8px; align-items: center; }
+    .btn {
+      border: 1px solid var(--line-strong);
+      background: var(--bg);
+      color: var(--text-2);
+      border-radius: 999px;
+      padding: 8px 18px;
+      font-size: 13px;
+      font-weight: 500;
+      min-height: 36px;
+    }
+    .btn:hover { background: var(--surface); }
+    .btn.primary {
+      background: var(--blue);
+      border-color: var(--blue);
+      color: #fff;
+      box-shadow: 0 2px 6px rgba(11, 87, 208, 0.25);
+    }
+    .btn.primary:hover { background: var(--blue-hover); border-color: var(--blue-hover); }
+    .btn.danger { color: var(--danger); border-color: var(--danger-border); background: #fff8f7; }
+    .btn.danger:hover { background: var(--danger-bg); }
+
+    #message { font-size: 13px; font-weight: 500; color: var(--success); }
+    #message:not(:empty) {
+      padding: 5px 12px;
+      border-radius: 999px;
+      background: var(--success-bg);
+      border: 1px solid var(--success-border);
+    }
+    #message.err { color: var(--danger); }
+    #message.err:not(:empty) {
+      background: var(--danger-bg);
+      border-color: var(--danger-border);
+    }
   </style>
 </head>
 <body>
-  <h2>Notebook AI 助手 · 设置</h2>
-  <p class="hint">每个服务商的 API Key 都只保存在本机 Chrome 的 <code>chrome.storage.local</code>，不会同步、不会写进日志，只发给对应的接口。服务商、模型和思考强度可以在侧边栏底部直接切换。</p>
+  <main class="page">
+    <section class="hero">
+      <div class="hero-head">
+        <h2>Notebook AI 助手 · 设置</h2>
+        <span class="privacy-badge">本地存储 · 不同步云端</span>
+      </div>
+      <p class="hint">每个服务商的 API Key 都只保存在本机 Chrome 的 <code>chrome.storage.local</code>，不会同步、不会写进日志，只发给对应的接口。服务商、模型和思考强度可以在侧边栏底部直接切换。</p>
+    </section>
 
-  <label for="active">默认服务商</label>
-  <select id="active"></select>
+    <section class="global-card">
+      <div class="field">
+        <label for="active">默认服务商</label>
+        <select id="active"></select>
+      </div>
+      <div class="field">
+        <label for="temperature">温度（0–1，越低越稳定；开启思考时部分模型会忽略）</label>
+        <input id="temperature" type="number" min="0" max="1" step="0.1" />
+      </div>
+    </section>
 
-  <div id="cards"></div>
+    <section id="cards" class="cards-grid"></section>
 
-  <label for="temperature">温度（0–1，越低越稳定；开启思考时部分模型会忽略）</label>
-  <input id="temperature" />
-
-  <div class="btns">
-    <button class="btn primary" id="save">保存</button>
-    <button class="btn" id="clearKeys">清除所有 Key</button>
-  </div>
-  <div id="message"></div>
+    <footer class="action-bar">
+      <div class="btns">
+        <button type="button" class="btn primary" id="save">保存</button>
+        <button type="button" class="btn danger" id="clearKeys">清除所有 Key</button>
+      </div>
+      <div id="message" role="status" aria-live="polite"></div>
+    </footer>
+  </main>
   <script type="module" src="options.js"></script>
 </body>
 </html>

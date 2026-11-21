@@ -599,7 +599,14 @@ function renderDrawer() {
       input.value = c.title || '';
       main.replaceWith(input); input.focus(); input.select();
       const done = (save) => { if (save) renameConversation(c.id, input.value); else renderDrawer(); };
-      input.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') done(true); if (ev.key === 'Escape') done(false); });
+      input.addEventListener('keydown', (ev) => {
+        if (ev.key === 'Enter') {
+          if (ev.isComposing || ev.keyCode === 229) return;
+          ev.preventDefault();
+          done(true);
+        }
+        if (ev.key === 'Escape') done(false);
+      });
       input.addEventListener('blur', () => done(true));
     });
     const row = el('div', 'conv-row');
@@ -727,7 +734,15 @@ function renderAnswer(text) {
     const head = el('div', 'lang');
     head.appendChild(el('span', null, escapeHtml(mm[1] || 'code')));
     const cp = el('button', 'copy-mini', '复制');
-    cp.addEventListener('click', async () => { cp.textContent = (await copyText(code)) ? '已复制' : '复制失败'; setTimeout(() => { cp.textContent = '复制'; }, 1500); });
+    cp.type = 'button';
+    let cpTimer = null;
+    cp.addEventListener('click', async () => {
+      clearTimeout(cpTimer);
+      const ok = await copyText(code);
+      cp.textContent = ok ? '已复制' : '复制失败';
+      if (ok) cp.setAttribute('data-copied', '');
+      cpTimer = setTimeout(() => { cp.textContent = '复制'; cp.removeAttribute('data-copied'); }, 1500);
+    });
     head.appendChild(cp);
     blk.appendChild(head);
     const pre = el('pre'); const c = el('code'); c.textContent = code; pre.appendChild(c); blk.appendChild(pre);
@@ -828,8 +843,14 @@ function renderBot(m, { text, code, meta, error, onRan, info, mode, rec, notes }
 
   const setResult = (t, err) => { result.textContent = t; result.className = 'result' + (err ? ' err' : ''); };
   if (notes) setResult('提示：' + notes + '。');
+  let copyTimer = null;
   bCopy.addEventListener('click', async () => {
-    await copyText(ta.value, ta);
+    const ok = await copyText(ta.value, ta);
+    if (ok) {
+      clearTimeout(copyTimer);
+      bCopy.setAttribute('data-copied', '');
+      copyTimer = setTimeout(() => bCopy.removeAttribute('data-copied'), 1500);
+    }
     setResult(term ? '已复制。到终端里粘贴并回车运行，运行完点「+ → 修复当前报错」，我会自动读取终端里的输出，给你下一步' : '已复制');
   });
   const doInsert = async (andRun) => {
@@ -1022,7 +1043,15 @@ async function send(fix, opts = {}) {
   }
 }
 
-function autoGrow() { const t = $('prompt'); t.style.height = 'auto'; t.style.height = Math.min(160, t.scrollHeight) + 'px'; }
+function autoGrow() {
+  const t = $('prompt');
+  if (typeof CSS !== 'undefined' && CSS.supports && CSS.supports('field-sizing', 'content')) {
+    t.style.height = '';
+    return;
+  }
+  t.style.height = 'auto';
+  t.style.height = Math.min(160, t.scrollHeight) + 'px';
+}
 
 
 // ---------- 检测硬件：插入一段只读的检测代码，确认后运行，再从输出里读 NBAC_HW 那一行 ----------
@@ -1239,7 +1268,11 @@ async function copyDiagnostics() {
 $('send').addEventListener('click', () => send(false));
 $('prompt').addEventListener('input', autoGrow);
 $('prompt').addEventListener('keydown', (e) => {
-  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(false); }
+  if (e.key === 'Enter' && !e.shiftKey) {
+    if (e.isComposing || e.keyCode === 229) return;
+    e.preventDefault();
+    send(false);
+  }
 });
 document.querySelectorAll('.mode-btn').forEach((b) => b.addEventListener('click', () => setMode(b.dataset.mode)));
 document.querySelectorAll('.chip').forEach((c) => c.addEventListener('click', () => {
@@ -1273,7 +1306,13 @@ $('modelInput').addEventListener('input', () => {
   const cache = settings.modelCache[settings.active];
   renderModelList(cache ? cache.models : [], $('modelHint').textContent, $('modelHint').classList.contains('err'));
 });
-$('modelInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); chooseModel($('modelInput').value); } });
+$('modelInput').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    if (e.isComposing || e.keyCode === 229) return;
+    e.preventDefault();
+    chooseModel($('modelInput').value);
+  }
+});
 $('modelInput').addEventListener('change', () => chooseModel($('modelInput').value));
 // 新对话 = 清空全部聊天记录（先确认）；没有记录时直接回到欢迎页
 $('newChat').addEventListener('click', (e) => { e.stopPropagation(); closeMenus(); newConversation(); });
@@ -1285,7 +1324,11 @@ $('convDeleteAll').addEventListener('click', () => { $('convAllConfirm').hidden 
 $('convAllNo').addEventListener('click', () => { $('convAllConfirm').hidden = true; });
 $('convAllYes').addEventListener('click', () => { $('convAllConfirm').hidden = true; deleteAllConversations(); });
 $('convDrawer').addEventListener('click', (e) => e.stopPropagation());
-document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('convDrawer').hidden) closeDrawer(); });
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  if (!$('convDrawer').hidden) closeDrawer();
+  else closeMenus();
+});
 // 聊天模式：+ → 添加图片或文件；也可以直接粘贴图片、把文件拖进输入框
 $('attachFile').addEventListener('click', () => { closeMenus(); $('fileInput').click(); });
 $('fileInput').addEventListener('change', async (e) => { await addFiles(e.target.files); e.target.value = ''; });
