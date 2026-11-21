@@ -85,10 +85,11 @@
       <button class="mode-btn" data-mode="chat" role="tab" title="聊天问答，只回答问题，不改动 Notebook">聊天</button>
     </div>
     <div class="composer" id="composer">
-      <div id="ctxChip" class="ctx-chip" hidden title="已开启：提问时自动附带当前选中的单元格代码和报错（可在 + 菜单中切换）">
-        <svg viewBox="0 0 24 24"><path d="M16.5 6v11.5a4 4 0 0 1-8 0V5a2.5 2.5 0 0 1 5 0v10.5a1 1 0 0 1-2 0V6H10v9.5a2.5 2.5 0 0 0 5 0V5a4 4 0 0 0-8 0v12.5a5.5 5.5 0 0 0 11 0V6h-1.5z"/></svg>
-        已附带当前单元格和报错
-      </div>
+      <button type="button" id="ctxChip" class="ctx-chip" hidden title="点击关闭：提问时不再自动附带当前单元格代码和报错（可在 + 菜单中重新开启）" aria-label="已附带当前单元格和报错，点击关闭">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16.5 6v11.5a4 4 0 0 1-8 0V5a2.5 2.5 0 0 1 5 0v10.5a1 1 0 0 1-2 0V6H10v9.5a2.5 2.5 0 0 0 5 0V5a4 4 0 0 0-8 0v12.5a5.5 5.5 0 0 0 11 0V6h-1.5z"/></svg>
+        <span>已附带当前单元格和报错</span>
+        <span class="ctx-close" aria-hidden="true">×</span>
+      </button>
       <div id="attachChips" class="attach-chips" hidden></div>
       <input type="file" id="fileInput" multiple hidden accept="image/png,image/jpeg,image/webp,image/gif,.txt,.md,.py,.ipynb,.csv,.tsv,.json,.jsonl,.yaml,.yml,.toml,.ini,.cfg,.log,.sh,.js,.ts,.html,.css,.xml,.sql,.r,.java,.c,.cpp,.h,.go,.rs,text/*" />
       <textarea id="prompt" rows="1" placeholder="需要我帮您构建什么？" aria-label="输入你的需求或问题"></textarea>

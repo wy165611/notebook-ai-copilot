@@ -1288,6 +1288,7 @@ $('modelBtn').addEventListener('click', (e) => {
 for (const id of ['plusMenu', 'thinkMenu', 'modelMenu']) $(id).addEventListener('click', (e) => e.stopPropagation());
 document.addEventListener('click', () => closeMenus());
 $('includeContext').addEventListener('change', async (e) => { await saveSettings({ includeContext: e.target.checked }); await refreshSettings(); });
+$('ctxChip').addEventListener('click', async () => { await saveSettings({ includeContext: false }); await refreshSettings(); });
 $('fixError').addEventListener('click', () => send(true));
 $('refresh').addEventListener('click', () => { closeMenus(); detect(); });
 $('diagnose').addEventListener('click', () => { copyDiagnostics(); });

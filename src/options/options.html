@@ -13,7 +13,7 @@
       background: var(--sheet);
       padding: 28px 18px 48px;
     }
-    .page { max-width: 860px; margin: 0 auto; }
+    .page { max-width: 920px; margin: 0 auto; }
 
     .hero {
       background: var(--paper);
@@ -115,6 +115,7 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
+      flex-wrap: wrap;
       gap: 8px;
     }
     .card.active-card h3 {
@@ -122,7 +123,7 @@
       color: var(--paper);
       border-bottom-color: var(--ink);
     }
-    .card-badges { display: inline-flex; align-items: center; gap: 6px; }
+    .card-badges { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 5px; }
     .card label {
       display: flex;
       align-items: center;
@@ -155,7 +156,8 @@
       outline: none;
       transition: border-color 120ms ease-out, box-shadow 120ms ease-out;
     }
-    input[data-f="baseUrl"], input[data-f="model"], input[data-f="apiKey"] { font-family: var(--mono); font-size: 12.5px; }
+    input[data-f="model"], input[data-f="apiKey"] { font-family: var(--mono); font-size: 12px; }
+    input[data-f="baseUrl"] { font-family: var(--mono); font-size: 11.5px; padding: 8px 9px; }
     input:focus, select:focus {
       border-color: var(--ink);
       box-shadow: var(--shadow-sm);
@@ -194,18 +196,50 @@
     .sug-chip:active { transform: translate(1px, 1px); }
 
     .tag {
-      font-size: 11px;
+      font-size: 10.5px;
       color: var(--ink);
       background: var(--surface);
       border: 1px solid var(--line);
       border-radius: 0;
-      padding: 2px 8px;
+      padding: 2px 7px;
       font-weight: 600;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .tag.key-status {
+      color: var(--subtle);
+      background: transparent;
+      border: 1px dashed #a3a3a3;
+      font-weight: 500;
+    }
+    .tag.key-status.configured {
+      color: var(--ink);
+      background: #eaeaea;
+      border: 1px solid var(--ink);
+      font-weight: 700;
+    }
+    .tag.key-status.configured::before {
+      content: "";
+      width: 5px;
+      height: 5px;
+      background: currentColor;
+      flex: none;
     }
     .card.active-card .tag {
+      color: #d4d4d4;
+      background: transparent;
+      border-color: #525252;
+    }
+    .card.active-card .tag.key-status {
+      color: #a3a3a3;
+      border: 1px dashed #737373;
+    }
+    .card.active-card .tag.key-status.configured {
       color: var(--paper);
       background: transparent;
-      border-color: #737373;
+      border: 1px solid #d4d4d4;
+      font-weight: 700;
     }
     .card.active-card .tag.default-tag {
       color: var(--ink);
@@ -226,7 +260,8 @@
       flex-wrap: wrap;
       gap: 12px;
     }
-    .btns { display: flex; gap: 8px; align-items: center; }
+    .action-left { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+    .action-right { display: flex; align-items: center; margin-left: auto; }
     .btn {
       border: 1.5px solid var(--ink);
       background: var(--paper);
@@ -246,7 +281,9 @@
     }
     .btn.primary:hover { background: var(--ink-2); }
     .btn.danger {
-      background: repeating-linear-gradient(-45deg, #efefef 0 3px, #ffffff 3px 6px);
+      border-left: 4px solid var(--ink);
+      padding-left: 14px;
+      background: repeating-linear-gradient(-45deg, #e2e2e2 0 3px, #ffffff 3px 6px);
       color: var(--ink);
       font-weight: 700;
     }
@@ -293,11 +330,13 @@
     <section id="cards" class="cards-grid"></section>
 
     <footer class="action-bar">
-      <div class="btns">
+      <div class="action-left">
         <button type="button" class="btn primary" id="save">保存</button>
+        <div id="message" role="status" aria-live="polite"></div>
+      </div>
+      <div class="action-right">
         <button type="button" class="btn danger" id="clearKeys">清除所有 Key</button>
       </div>
-      <div id="message" role="status" aria-live="polite"></div>
     </footer>
   </main>
   <script type="module" src="options.js"></script>

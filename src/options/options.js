@@ -29,6 +29,14 @@ function syncChips(cardEl, modelValue) {
   }
 }
 
+function syncKeyStatus(cardEl, keyVal) {
+  const badge = cardEl.querySelector('.key-status');
+  if (!badge) return;
+  const ok = !!String(keyVal || '').trim();
+  badge.textContent = ok ? '已配置' : '未配置';
+  badge.classList.toggle('configured', ok);
+}
+
 function card(id, cfg) {
   const p = PRESETS[id];
   const d = document.createElement('div');
@@ -38,6 +46,7 @@ function card(id, cfg) {
     <h3>
       <span>${p.label}</span>
       <span class="card-badges">
+        <span class="tag key-status"></span>
         <span class="tag default-tag" hidden>当前默认</span>
         ${id === 'bailian' ? '<span class="tag">推荐</span>' : ''}
       </span>
@@ -57,6 +66,8 @@ function card(id, cfg) {
   for (const inp of d.querySelectorAll('input')) inp.value = cfg[inp.dataset.f] || '';
 
   const keyInput = d.querySelector('input[data-f="apiKey"]');
+  syncKeyStatus(d, keyInput.value);
+  keyInput.addEventListener('input', () => syncKeyStatus(d, keyInput.value));
   const eyeBtn = d.querySelector('.toggle-eye');
   eyeBtn.addEventListener('click', () => {
     const show = keyInput.type === 'password';
@@ -120,6 +131,7 @@ $('save').addEventListener('click', async () => {
       if (providers[id].baseUrl !== s.providers[id].baseUrl || providers[id].apiKey !== s.providers[id].apiKey) delete modelCache[id];
     }
     await chrome.storage.local.set({ providers, active: $('active').value, temperature, modelCache });
+    for (const el of document.querySelectorAll('.card[data-provider]')) syncKeyStatus(el, providers[el.dataset.provider].apiKey);
     msg(denied.length ? `已保存，但没有授权访问：${denied.join('、')}，调用可能失败。` : '已保存。', denied.length > 0);
   } catch (e) { msg(String(e.message || e), true); }
 });
@@ -129,6 +141,7 @@ $('clearKeys').addEventListener('click', async () => {
   for (const id of PROVIDER_IDS) s.providers[id].apiKey = '';
   await chrome.storage.local.set({ providers: s.providers, modelCache: {} });
   for (const inp of document.querySelectorAll('input[data-f="apiKey"]')) inp.value = '';
+  for (const el of document.querySelectorAll('.card[data-provider]')) syncKeyStatus(el, '');
   msg('已清除。');
 });
 
