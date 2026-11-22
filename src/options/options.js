@@ -43,14 +43,20 @@ function card(id, cfg) {
   d.className = 'card';
   d.dataset.provider = id;
   d.innerHTML = `
-    <h3>
+    <svg class="vine-decor" viewBox="0 0 140 72" aria-hidden="true">
+      <path d="M8 62 C 12 34, 26 14, 62 11 C 90 9, 112 17, 134 10" fill="none" stroke="#4a7c3f" stroke-width="1.15" stroke-linecap="round"/>
+      <path d="M25 27 C 24 14, 34 6, 44 9 C 39 18, 32 23, 25 27 Z" fill="rgba(74, 124, 63, 0.16)" stroke="#4a7c3f" stroke-width="1"/>
+      <path d="M56 12 C 54 23, 62 32, 72 28 C 68 20, 62 15, 56 12 Z" fill="rgba(74, 124, 63, 0.16)" stroke="#4a7c3f" stroke-width="1"/>
+      <path d="M98 13 C 102 4, 112 2, 118 8 C 111 13, 104 14, 98 13 Z" fill="rgba(74, 124, 63, 0.16)" stroke="#4a7c3f" stroke-width="1"/>
+    </svg>
+    <h2 class="card-head">
       <span>${p.label}</span>
       <span class="card-badges">
         <span class="tag key-status"></span>
         <span class="tag default-tag" hidden>当前默认</span>
-        ${id === 'bailian' ? '<span class="tag">推荐</span>' : ''}
+        ${id === 'bailian' ? '<span class="tag rec-tag">推荐</span>' : ''}
       </span>
-    </h3>
+    </h2>
     <label for="key-${id}"><span>API Key</span>${p.keyUrl ? `<a href="${p.keyUrl}" target="_blank" rel="noopener">在这里创建 ↗</a>` : ''}</label>
     <div class="input-wrap">
       <input id="key-${id}" type="password" autocomplete="off" placeholder="粘贴你的 API Key" data-p="${id}" data-f="apiKey" />

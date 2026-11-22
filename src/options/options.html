@@ -6,315 +6,526 @@
   <title>Notebook AI 助手 · 设置</title>
   <link rel="stylesheet" href="../sidepanel/panel.css" />
   <style>
+    html { height: auto; }
     body {
       display: block;
       height: auto;
       min-height: 100%;
-      background: var(--sheet);
-      padding: 28px 18px 48px;
+      background-color: var(--surface-ivory);
+      background-image:
+        radial-gradient(ellipse 90% 35% at 50% 0%, rgba(250, 247, 239, 0.8), transparent 70%),
+        radial-gradient(ellipse 75% 35% at 50% 100%, rgba(201, 162, 39, 0.08), transparent 72%);
+      padding: 40px 24px 64px;
+      font-size: var(--text-body);
+      line-height: var(--leading-body);
     }
-    .page { max-width: 920px; margin: 0 auto; }
+    .page {
+      max-width: var(--page-max-width);
+      margin: 0 auto;
+    }
 
+    /* ---------- Art Nouveau Vine Card Hero ---------- */
     .hero {
-      background: var(--paper);
-      border: 1.5px solid var(--ink);
-      border-left: 5px solid var(--ink);
-      border-radius: 0;
-      padding: 18px 20px;
-      box-shadow: var(--shadow-md);
-      margin-bottom: 16px;
+      position: relative;
+      background: var(--surface-soft-ivory);
+      border: 1px solid var(--gold-line);
+      border-radius: var(--radius-cards);
+      padding: var(--card-padding);
+      box-shadow: var(--shadow-soft);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--element-gap);
+      transition: border-color var(--t-card) var(--ease-vine), box-shadow var(--t-card) var(--ease-vine);
+    }
+    .hero-copy {
+      flex: 1;
+      min-width: 0;
+      padding-left: 16px;
     }
     .hero-head {
       display: flex;
       align-items: center;
-      justify-content: space-between;
       gap: 12px;
       flex-wrap: wrap;
-      margin-bottom: 8px;
+      margin-bottom: 10px;
     }
-    .hero h2 {
+    .hero h1 {
       margin: 0;
-      font-size: 20px;
-      font-weight: 800;
-      letter-spacing: 0.02em;
-      display: inline-flex;
-      align-items: center;
-      gap: 9px;
+      font-size: clamp(28px, 4vw, var(--text-heading));
+      font-weight: var(--font-weight-bold);
+      line-height: var(--leading-heading);
+      letter-spacing: 0.01em;
       color: var(--ink);
-    }
-    .hero h2::before {
-      content: "";
-      width: 3px;
-      height: 18px;
-      background: var(--ink);
-      flex: none;
     }
     .privacy-badge {
-      font-size: 11.5px;
-      font-weight: 600;
+      font-size: 12.5px;
+      font-weight: var(--font-weight-bold);
+      letter-spacing: 0.08em;
       color: var(--ink);
-      background: var(--surface);
-      border: 1px solid var(--ink);
-      border-radius: 0;
-      padding: 3px 10px;
+      background: var(--surface-ivory);
+      border: 1px solid var(--gold-line-strong);
+      border-radius: var(--radius-buttons);
+      padding: 4px 14px;
     }
-    .hint { font-size: 12.5px; color: var(--muted); margin: 6px 0 0; line-height: 1.55; }
-    .hint code {
-      font: 11.5px var(--mono);
-      background: var(--surface);
-      border: 1px solid var(--line);
-      border-radius: 0;
-      padding: 1px 5px;
-      color: var(--ink);
+    .hero .hint {
+      font-size: var(--text-body);
+      line-height: var(--leading-body);
+      color: var(--ink-muted);
+      margin: 6px 0 0;
+      max-width: 66ch;
     }
-    .hint a { color: var(--ink); text-decoration: underline; font-weight: 600; }
+    .hero-crest {
+      flex: none;
+      width: 96px;
+      height: 104px;
+      border-radius: 48px 48px 16px 16px;
+      margin-bottom: 0;
+    }
+    .hero-crest .blossom-mark { width: 52px; height: 52px; }
 
-    .global-card {
-      background: var(--paper);
-      border: 1.5px solid var(--ink);
-      border-radius: 0;
-      padding: 14px 18px 16px;
-      box-shadow: var(--shadow-sm);
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-      gap: 14px;
-      margin-bottom: 16px;
+    .hint { font-size: 14px; color: var(--ink-muted); margin: 12px 0 0; line-height: var(--leading-body); }
+    .hint code {
+      font: 12.5px var(--font-mono);
+      background: var(--surface-ivory);
+      border: 1px solid var(--gold-line);
+      border-radius: var(--radius-buttons);
+      padding: 2px 9px;
+      color: var(--ink);
     }
+    .hint a {
+      color: var(--ink);
+      text-decoration: underline;
+      text-decoration-color: var(--color-gold);
+      text-underline-offset: 4px;
+      font-weight: var(--font-weight-bold);
+    }
+
+    /* Airy Wave Dividers between sections */
+    .options-wave {
+      margin: 28px 0;
+    }
+
+    /* ---------- 全局设置 Vine Card ---------- */
+    .global-card {
+      position: relative;
+      background: var(--surface-soft-ivory);
+      border: 1px solid var(--gold-line);
+      border-radius: var(--radius-cards);
+      padding: 32px var(--card-padding);
+      box-shadow: var(--shadow-soft);
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
+      gap: var(--element-gap);
+      transition: border-color var(--t-card) var(--ease-vine), box-shadow var(--t-card) var(--ease-vine);
+    }
+    .field { min-width: 0; }
     .field label {
       display: block;
-      font-size: 12px;
-      font-weight: 700;
+      font-size: var(--text-label);
+      font-weight: var(--font-weight-bold);
+      letter-spacing: 0.04em;
       color: var(--ink);
-      margin: 0 0 6px;
+      margin: 0 0 8px;
+      line-height: var(--leading-label);
     }
 
+    /* ---------- 服务商 Vine Cards 网格 ---------- */
     .cards-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
-      gap: 14px;
-      margin-bottom: 16px;
+      grid-template-columns: repeat(auto-fit, minmax(min(100%, 390px), 1fr));
+      gap: var(--element-gap);
     }
     .card {
-      background: var(--paper);
-      border: 1.5px solid var(--ink);
-      border-radius: 0;
-      padding: 16px 18px;
-      box-shadow: var(--shadow-sm);
+      position: relative;
+      min-width: 0;
+      background: var(--surface-soft-ivory);
+      border: 1px solid var(--gold-line);
+      border-radius: var(--radius-cards);
+      padding: 46px var(--card-padding) var(--card-padding);
+      box-shadow: var(--shadow-soft);
+      transition: border-color var(--t-card) var(--ease-vine), box-shadow var(--t-card) var(--ease-vine);
+    }
+    .card .vine-decor {
+      top: 10px;
+      left: 24px;
+      width: 120px;
+      height: 32px;
+      transform-origin: 12px 26px;
     }
     .card.active-card {
-      box-shadow: var(--shadow-md);
+      border-color: var(--gold-line-strong);
+      box-shadow: 0 6px 22px rgba(45, 80, 22, 0.24);
     }
-    .card h3 {
-      margin: -16px -18px 12px;
-      padding: 10px 18px;
-      font-size: 15px;
-      font-weight: 800;
+    .card-head {
+      margin: 0 0 18px;
+      padding: 12px 18px;
+      font-size: clamp(20px, 2.5vw, var(--text-subheading));
+      font-weight: var(--font-weight-bold);
+      line-height: var(--leading-subheading);
       color: var(--ink);
-      background: #fafafa;
-      border-bottom: 1px solid var(--line-light);
+      background: var(--surface-ivory);
+      border: 1px solid var(--gold-line);
+      border-radius: 26px;
       display: flex;
       align-items: center;
       justify-content: space-between;
       flex-wrap: wrap;
-      gap: 8px;
+      gap: 10px;
+      position: relative;
+      z-index: 1;
     }
-    .card.active-card h3 {
-      background: var(--ink);
-      color: var(--paper);
-      border-bottom-color: var(--ink);
+    .card.active-card .card-head {
+      background: var(--surface-deep-green);
+      color: var(--surface-ivory);
+      border-color: var(--color-gold);
     }
-    .card-badges { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 5px; }
+    .card-badges { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 6px; }
     .card label {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      font-size: 12px;
-      font-weight: 600;
-      color: var(--ink-2);
-      margin: 11px 0 5px;
+      gap: 8px;
+      font-size: var(--text-label);
+      font-weight: var(--font-weight-bold);
+      color: var(--ink);
+      margin: 16px 0 6px;
+      line-height: var(--leading-label);
     }
     .card label a {
       color: var(--ink);
       text-decoration: none;
-      font-weight: 600;
-      background: var(--surface);
-      border: 1px solid var(--line);
-      border-radius: 0;
-      padding: 1px 7px;
-      font-size: 11px;
+      font-weight: var(--font-weight-bold);
+      background: var(--surface-ivory);
+      border: 1px solid var(--gold-line-strong);
+      border-radius: var(--radius-buttons);
+      padding: 3px 12px;
+      font-size: 12.5px;
+      transition: background-color var(--t-btn) var(--ease-vine), color var(--t-btn) var(--ease-vine), border-color var(--t-btn) var(--ease-vine), transform var(--t-btn) var(--ease-vine);
     }
-    .card label a:hover { background: var(--ink); border-color: var(--ink); color: var(--paper); }
+    .card label a:hover {
+      background: var(--color-gold);
+      border-color: var(--color-gold);
+      color: var(--ink-strong);
+    }
 
     input, select {
       width: 100%;
-      border: 1px solid #a3a3a3;
-      border-radius: 0;
-      padding: 8px 10px;
-      font: 13px var(--font);
+      min-width: 0;
+      min-height: 44px;
+      border: 1px solid var(--gold-line-strong);
+      border-radius: var(--radius-inputs);
+      padding: 10px 18px;
+      font: 15px var(--font-serif);
       color: var(--ink);
-      background: var(--paper);
+      background-color: #fffdf8;
       outline: none;
-      transition: border-color 120ms ease-out, box-shadow 120ms ease-out;
+      transition: border-color var(--t-btn) var(--ease-vine), box-shadow var(--t-btn) var(--ease-vine), background-color var(--t-btn) var(--ease-vine);
     }
-    input[data-f="model"], input[data-f="apiKey"] { font-family: var(--mono); font-size: 12px; }
-    input[data-f="baseUrl"] { font-family: var(--mono); font-size: 11.5px; padding: 8px 9px; }
+    select {
+      appearance: none;
+      -webkit-appearance: none;
+      padding-right: 40px;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M7 10l5 5 5-5' fill='none' stroke='%232d5016' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 16px center;
+      background-size: 16px 16px;
+    }
+    input[data-f="model"], input[data-f="apiKey"] { font-family: var(--font-mono); font-size: 13px; }
+    input[data-f="baseUrl"] { font-family: var(--font-mono); font-size: 12px; padding: 10px 16px; }
+    input::placeholder { color: rgba(45, 80, 22, 0.50); }
     input:focus, select:focus {
-      border-color: var(--ink);
-      box-shadow: var(--shadow-sm);
+      border-color: var(--color-deep-green);
+      box-shadow: 0 0 0 3px rgba(201, 162, 39, 0.28);
+      background: #ffffff;
     }
 
     .input-wrap { position: relative; display: flex; align-items: center; }
-    .input-wrap input { padding-right: 40px; }
+    .input-wrap input { padding-right: 48px; }
     .toggle-eye {
       position: absolute;
-      right: 5px;
+      right: 7px;
       border: 1px solid transparent;
       background: transparent;
-      color: var(--ink-2);
-      width: 28px;
-      height: 28px;
-      border-radius: 0;
+      color: var(--ink-muted);
+      width: 32px;
+      height: 32px;
+      border-radius: var(--radius-buttons);
       display: inline-flex;
       align-items: center;
       justify-content: center;
     }
-    .toggle-eye:hover { background: var(--surface); border-color: var(--ink); color: var(--ink); }
+    .toggle-eye:hover {
+      background: rgba(201, 162, 39, 0.20);
+      border-color: var(--gold-line-strong);
+      color: var(--ink);
+    }
     .toggle-eye svg { width: 17px; height: 17px; }
 
-    .sug-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+    .sug-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
     .sug-chip {
-      border: 1px solid var(--line);
-      background: #fafafa;
-      color: var(--ink-2);
-      border-radius: 0;
-      padding: 3px 9px;
-      font: 11.5px var(--mono);
+      border: 1px solid var(--gold-line-strong);
+      background: var(--surface-ivory);
+      color: var(--ink);
+      border-radius: var(--radius-buttons);
+      padding: 5px 14px;
+      min-height: 32px;
+      font: 12px var(--font-mono);
       font-weight: 500;
+      transition: background-color var(--t-btn) var(--ease-vine), color var(--t-btn) var(--ease-vine), border-color var(--t-btn) var(--ease-vine), transform var(--t-btn) var(--ease-vine);
     }
-    .sug-chip:hover { border-color: var(--ink); background: var(--surface); color: var(--ink); }
-    .sug-chip.active { background: var(--ink); border-color: var(--ink); color: var(--paper); font-weight: 600; }
-    .sug-chip:active { transform: translate(1px, 1px); }
+    .sug-chip:hover {
+      border-color: var(--color-gold);
+      background: rgba(201, 162, 39, 0.22);
+      color: var(--ink-strong);
+    }
+    .sug-chip.active {
+      background: var(--surface-deep-green);
+      border-color: var(--color-gold);
+      color: var(--surface-ivory);
+      font-weight: 700;
+    }
+    .sug-chip:active { transform: scale(0.98); }
 
     .tag {
-      font-size: 10.5px;
+      font-size: 12px;
       color: var(--ink);
-      background: var(--surface);
-      border: 1px solid var(--line);
-      border-radius: 0;
-      padding: 2px 7px;
-      font-weight: 600;
+      background: var(--surface-soft-ivory);
+      border: 1px solid var(--gold-line-strong);
+      border-radius: var(--radius-buttons);
+      padding: 3px 11px;
+      font-weight: var(--font-weight-bold);
+      line-height: 1.4;
       display: inline-flex;
       align-items: center;
-      gap: 4px;
+      gap: 6px;
     }
     .tag.key-status {
-      color: var(--subtle);
+      color: var(--ink-muted);
       background: transparent;
-      border: 1px dashed #a3a3a3;
-      font-weight: 500;
+      border: 1px dashed var(--gold-line-strong);
+      font-weight: var(--font-weight-regular);
     }
+    /* Minimal Bright Green usage: tiny new sprout pip on configured state */
     .tag.key-status.configured {
-      color: var(--ink);
-      background: #eaeaea;
-      border: 1px solid var(--ink);
-      font-weight: 700;
+      color: var(--ink-strong);
+      background: var(--surface-soft-ivory);
+      border: 1px solid var(--color-leaf);
+      font-weight: var(--font-weight-bold);
     }
     .tag.key-status.configured::before {
       content: "";
-      width: 5px;
-      height: 5px;
-      background: currentColor;
+      width: 7px;
+      height: 7px;
+      border-radius: 999px;
+      background: var(--color-bright-green);
+      border: 1px solid var(--color-deep-green);
       flex: none;
     }
+    .tag.rec-tag {
+      color: var(--ink-wisteria);
+      background: var(--surface-wisteria-soft);
+      border-color: rgba(139, 109, 181, 0.55);
+    }
     .card.active-card .tag {
-      color: #d4d4d4;
-      background: transparent;
-      border-color: #525252;
+      color: var(--surface-ivory);
+      background: rgba(245, 240, 225, 0.12);
+      border-color: var(--gold-line-strong);
     }
     .card.active-card .tag.key-status {
-      color: #a3a3a3;
-      border: 1px dashed #737373;
+      color: rgba(245, 240, 225, 0.85);
+      border: 1px dashed var(--gold-line-strong);
     }
     .card.active-card .tag.key-status.configured {
-      color: var(--paper);
-      background: transparent;
-      border: 1px solid #d4d4d4;
-      font-weight: 700;
+      color: var(--surface-ivory);
+      background: rgba(75, 197, 66, 0.16);
+      border: 1px solid var(--color-gold);
+    }
+    .card.active-card .tag.key-status.configured::before {
+      border-color: var(--surface-ivory);
     }
     .card.active-card .tag.default-tag {
-      color: var(--ink);
-      background: var(--paper);
-      border-color: var(--paper);
-      font-weight: 700;
+      color: var(--ink-strong);
+      background: var(--color-gold);
+      border-color: var(--color-gold);
+    }
+    .card.active-card .tag.rec-tag {
+      color: var(--ink-wisteria);
+      background: var(--surface-wisteria-soft);
+      border-color: var(--color-gold);
     }
 
+    /* ---------- Vine Button Action Bar ---------- */
     .action-bar {
-      background: var(--paper);
-      border: 1.5px solid var(--ink);
-      border-radius: 0;
-      padding: 12px 18px;
-      box-shadow: var(--shadow-sm);
+      background: var(--surface-soft-ivory);
+      border: 1px solid var(--gold-line);
+      border-radius: var(--radius-cards);
+      padding: 20px var(--card-padding);
+      box-shadow: var(--shadow-soft);
       display: flex;
       align-items: center;
       justify-content: space-between;
       flex-wrap: wrap;
-      gap: 12px;
+      gap: 16px;
     }
-    .action-left { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+    .action-left { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
     .action-right { display: flex; align-items: center; margin-left: auto; }
+
+    /* Exact Vine Button specification */
     .btn {
-      border: 1.5px solid var(--ink);
-      background: var(--paper);
-      color: var(--ink);
-      border-radius: 0;
-      padding: 8px 18px;
-      font-size: 13px;
-      font-weight: 600;
-      min-height: 36px;
+      border-radius: var(--radius-buttons);
+      padding: 16px 32px;
+      font-family: var(--font-serif);
+      font-size: 15px;
+      font-weight: var(--font-weight-bold);
+      letter-spacing: var(--tracking-label);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      min-height: 48px;
+      box-shadow: var(--shadow-soft);
+      transition:
+        background-color var(--t-btn) var(--ease-vine),
+        color var(--t-btn) var(--ease-vine),
+        border-color var(--t-btn) var(--ease-vine),
+        box-shadow var(--t-btn) var(--ease-vine),
+        transform var(--t-btn) var(--ease-vine);
     }
-    .btn:hover { background: var(--surface); }
-    .btn:active { transform: translate(1px, 1px); box-shadow: none !important; }
     .btn.primary {
-      background: var(--ink);
-      color: var(--paper);
-      box-shadow: 2px 2px 0 #a3a3a3;
+      background: var(--surface-deep-green);
+      color: var(--surface-ivory);
+      border: 1px solid var(--color-gold);
     }
-    .btn.primary:hover { background: var(--ink-2); }
+    .btn.primary::after {
+      content: "→";
+      content: "→" / "";
+      display: inline-block;
+      transition: transform var(--t-btn) var(--ease-vine);
+    }
+    .btn.primary:hover {
+      background: var(--color-gold);
+      color: var(--ink-strong);
+      border-color: var(--color-gold);
+      box-shadow: var(--shadow-soft-hover);
+    }
+    .btn.primary:hover::after,
+    .btn.primary:focus-visible::after {
+      transform: translateX(4px);
+    }
     .btn.danger {
-      border-left: 4px solid var(--ink);
-      padding-left: 14px;
-      background: repeating-linear-gradient(-45deg, #e2e2e2 0 3px, #ffffff 3px 6px);
-      color: var(--ink);
-      font-weight: 700;
+      background: var(--surface-wisteria-soft);
+      color: var(--ink-wisteria);
+      border: 1px solid rgba(139, 109, 181, 0.72);
     }
     .btn.danger:hover {
-      background: var(--ink);
-      color: var(--paper);
+      background: var(--wisteria-hover);
+      color: var(--surface-soft-ivory);
+      border-color: var(--color-gold);
+      box-shadow: 0 8px 25px rgba(139, 109, 181, 0.38);
+    }
+    .btn:active { transform: scale(0.98); }
+
+    #message { font-size: 14px; font-weight: var(--font-weight-bold); color: var(--ink); }
+    #message:not(:empty) {
+      padding: 8px 18px;
+      border-radius: var(--radius-buttons);
+      background: var(--surface-ivory);
+      border: 1px solid var(--color-leaf);
+    }
+    #message.err { color: var(--ink-wisteria); }
+    #message.err:not(:empty) {
+      background: var(--surface-wisteria-soft);
+      border-color: var(--color-wisteria);
     }
 
-    #message { font-size: 13px; font-weight: 600; color: var(--ink); }
-    #message:not(:empty) {
-      padding: 5px 12px;
-      border-radius: 0;
-      background: var(--surface);
-      border: 1px solid var(--ink);
-      border-left: 4px solid var(--ink);
+    /* Vine Card Hover */
+    @media (hover: hover) and (pointer: fine) {
+      :is(.hero, .global-card, .card):hover {
+        border-color: var(--gold-line-strong);
+        box-shadow: var(--shadow-soft-hover);
+      }
+      :is(.hero, .card):hover .vine-decor { transform: rotate(3deg); }
+      .hero:hover .curved-frame .blossom-mark { transform: scale(1.04) rotate(6deg); }
     }
-    #message.err { font-weight: 700; }
-    #message.err:not(:empty) {
-      background: repeating-linear-gradient(-45deg, #f3f3f3 0 4px, #ffffff 4px 8px);
+
+    @media (max-width: 639px) {
+      body { padding: 20px 14px 40px; }
+      .hero { flex-direction: column-reverse; text-align: center; padding: 38px 20px 24px; }
+      .hero-copy { padding-left: 0; }
+      .hero-head { justify-content: center; }
+      .global-card { padding: 24px 20px; }
+      .card { padding: 44px 20px 24px; }
+      .card .vine-decor { left: 16px; }
+      .action-bar { padding: 20px; }
+      .action-left, .action-right { width: 100%; margin-left: 0; }
+      .btn { width: 100%; }
+      .options-wave { margin: 20px 0; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      :is(.hero, .global-card, .card, .btn, .btn::after, .card label a, .sug-chip, .vine-decor, .hero .curved-frame .blossom-mark) {
+        transition-property: background-color, color, border-color, box-shadow, opacity !important;
+      }
+      :is(.hero, .card):hover .vine-decor,
+      .hero:hover .curved-frame .blossom-mark,
+      .btn.primary:hover::after,
+      .btn.primary:focus-visible::after,
+      .btn:active,
+      .sug-chip:active {
+        transform: none !important;
+      }
     }
   </style>
 </head>
 <body>
   <main class="page">
     <section class="hero">
-      <div class="hero-head">
-        <h2>Notebook AI 助手 · 设置</h2>
-        <span class="privacy-badge">本地存储 · 不同步云端</span>
+      <svg class="vine-decor" viewBox="0 0 140 72" aria-hidden="true">
+        <path d="M8 62 C 12 34, 26 14, 62 11 C 90 9, 112 17, 134 10" fill="none" stroke="#4a7c3f" stroke-width="1.15" stroke-linecap="round"/>
+        <path d="M25 27 C 24 14, 34 6, 44 9 C 39 18, 32 23, 25 27 Z" fill="rgba(74, 124, 63, 0.16)" stroke="#4a7c3f" stroke-width="1"/>
+        <path d="M56 12 C 54 23, 62 32, 72 28 C 68 20, 62 15, 56 12 Z" fill="rgba(74, 124, 63, 0.16)" stroke="#4a7c3f" stroke-width="1"/>
+        <path d="M98 13 C 102 4, 112 2, 118 8 C 111 13, 104 14, 98 13 Z" fill="rgba(74, 124, 63, 0.16)" stroke="#4a7c3f" stroke-width="1"/>
+      </svg>
+      <div class="hero-copy">
+        <div class="hero-head">
+          <h1>Notebook AI 助手 · 设置</h1>
+          <span class="privacy-badge">本地存储 · 不同步云端</span>
+        </div>
+        <p class="hint">每个服务商的 API Key 都只保存在本机 Chrome 的 <code>chrome.storage.local</code>，不会同步、不会写进日志，只发给对应的接口。服务商、模型和思考强度可以在侧边栏底部直接切换。</p>
       </div>
-      <p class="hint">每个服务商的 API Key 都只保存在本机 Chrome 的 <code>chrome.storage.local</code>，不会同步、不会写进日志，只发给对应的接口。服务商、模型和思考强度可以在侧边栏底部直接切换。</p>
+      <div class="curved-frame hero-crest" aria-hidden="true">
+        <svg class="scroll corner-tl" viewBox="0 0 24 24"><path d="M2 22 C 2 10, 10 2, 22 2 M 7 18 C 7 12, 12 7, 17 8 C 19 8.5, 18.5 11, 16.5 10.5 C 15 10, 15 8.5, 16 8" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/></svg>
+        <svg class="scroll corner-tr" viewBox="0 0 24 24"><path d="M2 22 C 2 10, 10 2, 22 2 M 7 18 C 7 12, 12 7, 17 8 C 19 8.5, 18.5 11, 16.5 10.5 C 15 10, 15 8.5, 16 8" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/></svg>
+        <svg class="scroll corner-bl" viewBox="0 0 24 24"><path d="M2 22 C 2 10, 10 2, 22 2 M 7 18 C 7 12, 12 7, 17 8 C 19 8.5, 18.5 11, 16.5 10.5 C 15 10, 15 8.5, 16 8" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/></svg>
+        <svg class="scroll corner-br" viewBox="0 0 24 24"><path d="M2 22 C 2 10, 10 2, 22 2 M 7 18 C 7 12, 12 7, 17 8 C 19 8.5, 18.5 11, 16.5 10.5 C 15 10, 15 8.5, 16 8" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/></svg>
+        <svg class="blossom-mark" viewBox="-24 -24 48 48">
+          <g fill="#8b6db5" fill-opacity="0.88" stroke="#c9a227" stroke-width="0.9">
+            <path d="M0 0 C5 -7, 7 -17, 0 -20 C-7 -17, -5 -7, 0 0 Z"/>
+            <path d="M0 0 C5 -7, 7 -17, 0 -20 C-7 -17, -5 -7, 0 0 Z" transform="rotate(72)"/>
+            <path d="M0 0 C5 -7, 7 -17, 0 -20 C-7 -17, -5 -7, 0 0 Z" transform="rotate(144)"/>
+            <path d="M0 0 C5 -7, 7 -17, 0 -20 C-7 -17, -5 -7, 0 0 Z" transform="rotate(216)"/>
+            <path d="M0 0 C5 -7, 7 -17, 0 -20 C-7 -17, -5 -7, 0 0 Z" transform="rotate(288)"/>
+          </g>
+          <circle cx="0" cy="0" r="3.4" fill="#2d5016" stroke="#c9a227" stroke-width="0.8"/>
+        </svg>
+      </div>
     </section>
+
+    <div class="wave-divider options-wave" aria-hidden="true">
+      <span class="wave-line"></span>
+      <svg class="wave-blossom" viewBox="-24 -24 48 48">
+        <g fill="#8b6db5" stroke="#c9a227" stroke-width="1.1">
+          <path d="M0 0 C5 -7, 7 -17, 0 -20 C-7 -17, -5 -7, 0 0 Z"/>
+          <path d="M0 0 C5 -7, 7 -17, 0 -20 C-7 -17, -5 -7, 0 0 Z" transform="rotate(72)"/>
+          <path d="M0 0 C5 -7, 7 -17, 0 -20 C-7 -17, -5 -7, 0 0 Z" transform="rotate(144)"/>
+          <path d="M0 0 C5 -7, 7 -17, 0 -20 C-7 -17, -5 -7, 0 0 Z" transform="rotate(216)"/>
+          <path d="M0 0 C5 -7, 7 -17, 0 -20 C-7 -17, -5 -7, 0 0 Z" transform="rotate(288)"/>
+        </g>
+        <circle cx="0" cy="0" r="3.8" fill="#2d5016"/>
+      </svg>
+      <span class="wave-line"></span>
+    </div>
 
     <section class="global-card">
       <div class="field">
@@ -327,7 +538,26 @@
       </div>
     </section>
 
+    <div class="wave-divider options-wave" aria-hidden="true">
+      <span class="wave-line"></span>
+    </div>
+
     <section id="cards" class="cards-grid"></section>
+
+    <div class="wave-divider options-wave" aria-hidden="true">
+      <span class="wave-line"></span>
+      <svg class="wave-blossom" viewBox="-24 -24 48 48">
+        <g fill="#c9a227" stroke="#2d5016" stroke-width="1">
+          <path d="M0 0 C5 -7, 7 -17, 0 -20 C-7 -17, -5 -7, 0 0 Z"/>
+          <path d="M0 0 C5 -7, 7 -17, 0 -20 C-7 -17, -5 -7, 0 0 Z" transform="rotate(72)"/>
+          <path d="M0 0 C5 -7, 7 -17, 0 -20 C-7 -17, -5 -7, 0 0 Z" transform="rotate(144)"/>
+          <path d="M0 0 C5 -7, 7 -17, 0 -20 C-7 -17, -5 -7, 0 0 Z" transform="rotate(216)"/>
+          <path d="M0 0 C5 -7, 7 -17, 0 -20 C-7 -17, -5 -7, 0 0 Z" transform="rotate(288)"/>
+        </g>
+        <circle cx="0" cy="0" r="3.8" fill="#2d5016"/>
+      </svg>
+      <span class="wave-line"></span>
+    </div>
 
     <footer class="action-bar">
       <div class="action-left">

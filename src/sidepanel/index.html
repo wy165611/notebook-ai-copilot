@@ -8,39 +8,42 @@
 </head>
 <body>
   <header class="top">
-    <div class="title">Notebook AI 助手</div>
+    <div class="title">
+      <svg class="brand-sprig" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19c4-6 9-10 15-13-3 5-5 10-10 13M10 12c-3-1-5-3-6-6 3 1 5 2 6 6zm4-4c1-3 3-5 6-5-1 3-3 5-6 5z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <span>Notebook AI 助手</span>
+    </div>
     <div class="top-actions">
-      <button class="icon" id="historyBtn" title="对话记录">
-        <svg viewBox="0 0 24 24"><path d="M13 3a9 9 0 0 0-9 9H1l3.89 3.89.07.14L9 12H6a7 7 0 1 1 2.05 4.95l-1.42 1.42A9 9 0 1 0 13 3zm-1 5v5l4.28 2.54.72-1.21-3.5-2.08V8H12z"/></svg>
+      <button type="button" class="icon" id="historyBtn" title="对话记录" aria-label="对话记录">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 3a9 9 0 0 0-9 9H1l3.89 3.89.07.14L9 12H6a7 7 0 1 1 2.05 4.95l-1.42 1.42A9 9 0 1 0 13 3zm-1 5v5l4.28 2.54.72-1.21-3.5-2.08V8H12z"/></svg>
       </button>
-      <button class="icon" id="newChat" title="新对话（之前的对话会保留在对话记录里）">
-        <svg viewBox="0 0 24 24"><path d="M20 2H4a2 2 0 0 0-2 2v18l4-4h14a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2zm-3 9h-4v4h-2v-4H7V9h4V5h2v4h4v2z"/></svg>
+      <button type="button" class="icon" id="newChat" title="新对话（之前的对话会保留在对话记录里）" aria-label="新对话">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 2H4a2 2 0 0 0-2 2v18l4-4h14a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2zm-3 9h-4v4h-2v-4H7V9h4V5h2v4h4v2z"/></svg>
       </button>
-      <button class="icon" id="openOptions" title="设置（API Key / 服务商）">
-        <svg viewBox="0 0 24 24"><path d="M12 8a2 2 0 1 0 0-4 2 2 0 0 0 0 4zm0 2a2 2 0 1 0 0 4 2 2 0 0 0 0-4zm0 6a2 2 0 1 0 0 4 2 2 0 0 0 0-4z"/></svg>
+      <button type="button" class="icon" id="openOptions" title="设置（API Key / 服务商）" aria-label="设置">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8a2 2 0 1 0 0-4 2 2 0 0 0 0 4zm0 2a2 2 0 1 0 0 4 2 2 0 0 0 0-4zm0 6a2 2 0 1 0 0 4 2 2 0 0 0 0-4z"/></svg>
       </button>
-      <button class="icon" id="closePanel" title="关闭">
-        <svg viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+      <button type="button" class="icon" id="closePanel" title="关闭" aria-label="关闭侧边栏">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
       </button>
     </div>
   </header>
 
   <!-- 对话记录（像 Gemini 网页版：多个对话，可以打开、新建、重命名、删除） -->
   <div id="drawerMask" class="drawer-mask" hidden></div>
-  <aside id="convDrawer" class="conv-drawer" hidden>
+  <aside id="convDrawer" class="conv-drawer" role="dialog" aria-label="对话记录" hidden>
     <div class="drawer-head">
       <span class="drawer-title">对话记录</span>
-      <button class="icon" id="convClose" title="关闭"><svg viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg></button>
+      <button type="button" class="icon" id="convClose" title="关闭" aria-label="关闭对话记录"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg></button>
     </div>
-    <button class="act primary conv-new" id="convNew"><svg viewBox="0 0 24 24"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>新对话</button>
+    <button type="button" class="act primary conv-new" id="convNew"><span class="sprout-dot" aria-hidden="true"></span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>新对话</button>
     <div id="convList" class="conv-list"></div>
     <div id="convEmpty" class="conv-empty">还没有对话记录</div>
     <div class="drawer-foot">
-      <button class="act danger" id="convDeleteAll">删除全部</button>
+      <button type="button" class="act danger" id="convDeleteAll">删除全部</button>
       <div id="convAllConfirm" class="conv-confirm" hidden>
         <span>删除全部对话？</span>
-        <button class="act danger" id="convAllYes">删除</button>
-        <button class="act" id="convAllNo">取消</button>
+        <button type="button" class="act danger" id="convAllYes">删除</button>
+        <button type="button" class="act" id="convAllNo">取消</button>
       </div>
     </div>
   </aside>
@@ -48,29 +51,65 @@
   <div id="hw" class="hw" hidden></div>
   <div id="viewLine" class="hw" hidden></div>
   <div id="siteAccess" class="site-access" hidden>
-    <button class="act primary" id="enableSite">在此网站启用助手</button>
+    <button type="button" class="act primary" id="enableSite">在此网站启用助手</button>
     <div class="site-hint" id="siteHint"></div>
   </div>
 
   <main id="chat" class="chat">
     <section id="welcome" class="welcome">
+      <svg class="vine-decor" viewBox="0 0 140 72" aria-hidden="true">
+        <path d="M8 62 C 12 34, 26 14, 62 11 C 90 9, 112 17, 134 10" fill="none" stroke="#4a7c3f" stroke-width="1.15" stroke-linecap="round"/>
+        <path d="M25 27 C 24 14, 34 6, 44 9 C 39 18, 32 23, 25 27 Z" fill="rgba(74, 124, 63, 0.16)" stroke="#4a7c3f" stroke-width="1"/>
+        <path d="M56 12 C 54 23, 62 32, 72 28 C 68 20, 62 15, 56 12 Z" fill="rgba(74, 124, 63, 0.16)" stroke="#4a7c3f" stroke-width="1"/>
+        <path d="M98 13 C 102 4, 112 2, 118 8 C 111 13, 104 14, 98 13 Z" fill="rgba(74, 124, 63, 0.16)" stroke="#4a7c3f" stroke-width="1"/>
+      </svg>
+      <div class="curved-frame" aria-hidden="true">
+        <svg class="scroll corner-tl" viewBox="0 0 24 24"><path d="M2 22 C 2 10, 10 2, 22 2 M 7 18 C 7 12, 12 7, 17 8 C 19 8.5, 18.5 11, 16.5 10.5 C 15 10, 15 8.5, 16 8" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/></svg>
+        <svg class="scroll corner-tr" viewBox="0 0 24 24"><path d="M2 22 C 2 10, 10 2, 22 2 M 7 18 C 7 12, 12 7, 17 8 C 19 8.5, 18.5 11, 16.5 10.5 C 15 10, 15 8.5, 16 8" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/></svg>
+        <svg class="scroll corner-bl" viewBox="0 0 24 24"><path d="M2 22 C 2 10, 10 2, 22 2 M 7 18 C 7 12, 12 7, 17 8 C 19 8.5, 18.5 11, 16.5 10.5 C 15 10, 15 8.5, 16 8" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/></svg>
+        <svg class="scroll corner-br" viewBox="0 0 24 24"><path d="M2 22 C 2 10, 10 2, 22 2 M 7 18 C 7 12, 12 7, 17 8 C 19 8.5, 18.5 11, 16.5 10.5 C 15 10, 15 8.5, 16 8" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/></svg>
+        <svg class="blossom-mark" viewBox="-24 -24 48 48">
+          <g fill="#8b6db5" fill-opacity="0.88" stroke="#c9a227" stroke-width="0.9">
+            <path d="M0 0 C5 -7, 7 -17, 0 -20 C-7 -17, -5 -7, 0 0 Z"/>
+            <path d="M0 0 C5 -7, 7 -17, 0 -20 C-7 -17, -5 -7, 0 0 Z" transform="rotate(72)"/>
+            <path d="M0 0 C5 -7, 7 -17, 0 -20 C-7 -17, -5 -7, 0 0 Z" transform="rotate(144)"/>
+            <path d="M0 0 C5 -7, 7 -17, 0 -20 C-7 -17, -5 -7, 0 0 Z" transform="rotate(216)"/>
+            <path d="M0 0 C5 -7, 7 -17, 0 -20 C-7 -17, -5 -7, 0 0 Z" transform="rotate(288)"/>
+          </g>
+          <circle cx="0" cy="0" r="3.4" fill="#2d5016" stroke="#c9a227" stroke-width="0.8"/>
+        </svg>
+      </div>
       <h1 class="hello">你好</h1>
       <p class="sub">今天需要我做些什么？</p>
+      <div class="wave-divider" aria-hidden="true">
+        <span class="wave-line"></span>
+        <svg class="wave-blossom" viewBox="-24 -24 48 48">
+          <g fill="#8b6db5" stroke="#c9a227" stroke-width="1.1">
+            <path d="M0 0 C5 -7, 7 -17, 0 -20 C-7 -17, -5 -7, 0 0 Z"/>
+            <path d="M0 0 C5 -7, 7 -17, 0 -20 C-7 -17, -5 -7, 0 0 Z" transform="rotate(72)"/>
+            <path d="M0 0 C5 -7, 7 -17, 0 -20 C-7 -17, -5 -7, 0 0 Z" transform="rotate(144)"/>
+            <path d="M0 0 C5 -7, 7 -17, 0 -20 C-7 -17, -5 -7, 0 0 Z" transform="rotate(216)"/>
+            <path d="M0 0 C5 -7, 7 -17, 0 -20 C-7 -17, -5 -7, 0 0 Z" transform="rotate(288)"/>
+          </g>
+          <circle cx="0" cy="0" r="3.8" fill="#2d5016"/>
+        </svg>
+        <span class="wave-line"></span>
+      </div>
       <div class="chips" data-mode="notebook">
-        <button class="chip" data-prompt="配置好训练 YOLO11m 的环境（安装 ultralytics，检查 GPU）">配置 YOLO11 训练环境</button>
-        <button class="chip" data-prompt="写好用 YOLO11m 训练 RDD2022 路面病害数据集的代码，data.yaml 路径放在开头变量里">写 YOLO11m 训练代码</button>
-        <button class="chip" data-action="fix">修复当前报错</button>
+        <button type="button" class="chip" data-prompt="配置好训练 YOLO11m 的环境（安装 ultralytics，检查 GPU）">配置 YOLO11 训练环境</button>
+        <button type="button" class="chip" data-prompt="写好用 YOLO11m 训练 RDD2022 路面病害数据集的代码，data.yaml 路径放在开头变量里">写 YOLO11m 训练代码</button>
+        <button type="button" class="chip" data-action="fix">修复当前报错</button>
       </div>
       <div class="chips" data-mode="terminal" hidden>
-        <button class="chip" data-prompt="查看显卡、显存、CPU、内存和磁盘空间">查看机器配置</button>
-        <button class="chip" data-prompt="用镜像安装 ultralytics，并检查 PyTorch 能不能用 GPU">安装 ultralytics</button>
-        <button class="chip" data-prompt="用 hf-mirror 下载一个 Hugging Face 模型到 ./models 目录，模型名放在开头变量里">下载 Hugging Face 模型</button>
-        <button class="chip" data-action="fix">读取终端输出，继续</button>
+        <button type="button" class="chip" data-prompt="查看显卡、显存、CPU、内存和磁盘空间">查看机器配置</button>
+        <button type="button" class="chip" data-prompt="用镜像安装 ultralytics，并检查 PyTorch 能不能用 GPU">安装 ultralytics</button>
+        <button type="button" class="chip" data-prompt="用 hf-mirror 下载一个 Hugging Face 模型到 ./models 目录，模型名放在开头变量里">下载 Hugging Face 模型</button>
+        <button type="button" class="chip" data-action="fix">读取终端输出，继续</button>
       </div>
       <div class="chips" data-mode="chat" hidden>
-        <button class="chip" data-prompt="我的显卡跑 YOLO11m 训练，batch size 设多少合适？">batch size 怎么选</button>
-        <button class="chip" data-prompt="CUDA out of memory 一般是什么原因，怎么解决？">显存不够怎么办</button>
-        <button class="chip" data-action="fix">解释当前报错</button>
+        <button type="button" class="chip" data-prompt="我的显卡跑 YOLO11m 训练，batch size 设多少合适？">batch size 怎么选</button>
+        <button type="button" class="chip" data-prompt="CUDA out of memory 一般是什么原因，怎么解决？">显存不够怎么办</button>
+        <button type="button" class="chip" data-action="fix">解释当前报错</button>
       </div>
     </section>
     <div id="messages"></div>
@@ -78,11 +117,11 @@
 
   <footer class="composer-wrap">
     <div id="notice" class="notice" hidden></div>
-    <textarea id="diagOutput" class="diag-output" readonly hidden></textarea>
+    <textarea id="diagOutput" class="diag-output" readonly hidden aria-label="诊断信息"></textarea>
     <div class="modes" id="modes" role="tablist" aria-label="模式">
-      <button class="mode-btn" data-mode="notebook" role="tab" title="写 Python 代码，插入到 Notebook 单元格并运行">Notebook</button>
-      <button class="mode-btn" data-mode="terminal" role="tab" title="写终端（bash）命令，可以复制到终端，或者用 %%bash 单元格在 Notebook 里运行">终端</button>
-      <button class="mode-btn" data-mode="chat" role="tab" title="聊天问答，只回答问题，不改动 Notebook">聊天</button>
+      <button type="button" class="mode-btn" data-mode="notebook" role="tab" title="写 Python 代码，插入到 Notebook 单元格并运行">Notebook</button>
+      <button type="button" class="mode-btn" data-mode="terminal" role="tab" title="写终端（bash）命令，可以复制到终端，或者用 %%bash 单元格在 Notebook 里运行">终端</button>
+      <button type="button" class="mode-btn" data-mode="chat" role="tab" title="聊天问答，只回答问题，不改动 Notebook">聊天</button>
     </div>
     <div class="composer" id="composer">
       <button type="button" id="ctxChip" class="ctx-chip" hidden title="点击关闭：提问时不再自动附带当前单元格代码和报错（可在 + 菜单中重新开启）" aria-label="已附带当前单元格和报错，点击关闭">
@@ -95,19 +134,19 @@
       <textarea id="prompt" rows="1" placeholder="需要我帮您构建什么？" aria-label="输入你的需求或问题"></textarea>
       <div class="composer-bar">
         <div class="left">
-          <button class="icon" id="plusBtn" title="附加上下文 / 修复报错">
-            <svg viewBox="0 0 24 24"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
+          <button type="button" class="icon" id="plusBtn" title="附加上下文 / 修复报错" aria-label="打开上下文与工具菜单">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
           </button>
-          <button class="icon" id="thinkBtn" title="思考强度">
-            <svg viewBox="0 0 24 24"><path d="M3 17v2h6v-2H3zM3 5v2h10V5H3zm10 16v-2h8v-2h-8v-2h-2v6h2zM7 9v2H3v2h4v2h2V9H7zm14 4v-2H11v2h10zm-6-4h2V7h4V5h-4V3h-2v6z"/></svg>
+          <button type="button" class="icon" id="thinkBtn" title="思考强度" aria-label="选择思考强度">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 17v2h6v-2H3zM3 5v2h10V5H3zm10 16v-2h8v-2h-8v-2h-2v6h2zM7 9v2H3v2h4v2h2V9H7zm14 4v-2H11v2h10zm-6-4h2V7h4V5h-4V3h-2v6z"/></svg>
             <span id="thinkLabel" class="think-label"></span>
           </button>
         </div>
         <div class="right">
-          <button class="model-btn" id="modelBtn" title="切换服务商和模型"><span id="modelLabel">模型</span>
-            <svg viewBox="0 0 24 24"><path d="M7 10l5 5 5-5z"/></svg></button>
-          <button class="send" id="send" title="发送（Enter）">
-            <svg viewBox="0 0 24 24"><path d="M4 12l1.41 1.41L11 7.83V20h2V7.83l5.58 5.59L20 12l-8-8-8 8z"/></svg>
+          <button type="button" class="model-btn" id="modelBtn" title="切换服务商和模型" aria-label="切换服务商和模型"><span id="modelLabel">模型</span>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10l5 5 5-5z"/></svg></button>
+          <button type="button" class="send" id="send" title="发送（Enter）" aria-label="发送">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12l1.41 1.41L11 7.83V20h2V7.83l5.58 5.59L20 12l-8-8-8 8z"/></svg>
           </button>
         </div>
       </div>
@@ -115,14 +154,14 @@
 
     <!-- 弹出菜单 -->
     <div id="plusMenu" class="menu" hidden>
-      <button class="menu-item chat-only strong-item" id="attachFile"><svg viewBox="0 0 24 24"><path d="M16.5 6v11.5a4 4 0 0 1-8 0V5a2.5 2.5 0 0 1 5 0v10.5a1 1 0 0 1-2 0V6H10v9.5a2.5 2.5 0 0 0 5 0V5a4 4 0 0 0-8 0v12.5a5.5 5.5 0 0 0 11 0V6h-1.5z"/></svg>添加图片或文件</button>
-      <div class="menu-sep chat-only"></div>
+      <button type="button" class="menu-item chat-only strong-item" id="attachFile"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16.5 6v11.5a4 4 0 0 1-8 0V5a2.5 2.5 0 0 1 5 0v10.5a1 1 0 0 1-2 0V6H10v9.5a2.5 2.5 0 0 0 5 0V5a4 4 0 0 0-8 0v12.5a5.5 5.5 0 0 0 11 0V6h-1.5z"/></svg>添加图片或文件</button>
+      <div class="menu-sep chat-only" aria-hidden="true"></div>
       <label class="menu-item"><input type="checkbox" id="includeContext" /> 附带当前单元格代码和最近的报错</label>
-      <button class="menu-item nb-only" id="fixError">修复当前报错（读取运行结果，给下一步）</button>
+      <button type="button" class="menu-item nb-only" id="fixError">修复当前报错（读取运行结果，给下一步）</button>
       <label class="menu-item nb-only"><input type="checkbox" id="autoFix" /> 运行出错自动修复（只生成，不自动运行）</label>
-      <button class="menu-item nb-only" id="probeHw">检测硬件（GPU / CPU）</button>
-      <button class="menu-item" id="refresh">重新检测 Notebook</button>
-      <button class="menu-item" id="diagnose">复制诊断信息</button>
+      <button type="button" class="menu-item nb-only" id="probeHw">检测硬件（GPU / CPU）</button>
+      <button type="button" class="menu-item" id="refresh">重新检测 Notebook</button>
+      <button type="button" class="menu-item" id="diagnose">复制诊断信息</button>
     </div>
     <div id="thinkMenu" class="menu" hidden>
       <div class="menu-title">思考强度</div>
@@ -130,10 +169,10 @@
       <div class="menu-hint" id="thinkHint"></div>
     </div>
     <div id="modelMenu" class="menu model-menu" hidden>
-      <div class="menu-title">服务商</div>
+      <div class="menu-title"><label for="providerSelect">服务商</label></div>
       <select id="providerSelect"></select>
-      <div class="menu-title row-between">模型
-        <button class="link" id="refreshModels" title="用你的 Key 重新拉取模型列表">刷新列表</button>
+      <div class="menu-title row-between"><span>模型</span>
+        <button type="button" class="link" id="refreshModels" title="用你的 Key 重新拉取模型列表">刷新列表</button>
       </div>
       <input id="modelInput" list="modelList" placeholder="输入或选择模型 ID" aria-label="输入或选择模型 ID" />
       <datalist id="modelList"></datalist>
